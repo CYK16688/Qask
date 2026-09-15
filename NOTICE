@@ -22,7 +22,10 @@ The currently resolved direct runtime components include:
 
 - Electron — MIT
 - electron-screenshots — MIT
-- node-screenshots — Apache-2.0
+- patch-package — MIT
+
+`node-screenshots` — Apache-2.0 — is a transitive runtime dependency of
+`electron-screenshots`, not a direct Qask dependency.
 
 This notice is not a substitute for the complete notices required in a binary
 release.
