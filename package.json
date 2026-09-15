@@ -1,0 +1,47 @@
+{
+  "name": "qask",
+  "version": "1.0.0",
+  "description": "A local Electron workspace for comparing responses from multiple AI websites.",
+  "private": true,
+  "main": "main.js",
+  "files": [
+    "main.js",
+    "local-data-boundary.cjs",
+    "preload.js",
+    "src/",
+    "docs/",
+    "scripts/run-electron.js",
+    "scripts/local-data-boundary-smoke.js",
+    "patches/electron-screenshots+0.5.27.patch",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "PRIVACY.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "COMMERCIAL-LICENSE.md"
+  ],
+  "scripts": {
+    "start": "node scripts/run-electron.js",
+    "dev": "node scripts/run-electron.js",
+    "test": "node --test test/**/*.test.cjs",
+    "test:layout-ui": "electron scripts/layout-ui-smoke.js",
+    "postinstall": "patch-package"
+  },
+  "keywords": [
+    "electron",
+    "ai",
+    "workspace",
+    "comparison"
+  ],
+  "author": "iCreator",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "electron": "44.3.0",
+    "electron-screenshots": "0.5.27",
+    "patch-package": "8.0.1"
+  }
+}

@@ -1,0 +1,47 @@
+diff --git a/node_modules/electron-screenshots/lib/preload.js b/node_modules/electron-screenshots/lib/preload.js
+index db71ac6..7d43048 100644
+--- a/node_modules/electron-screenshots/lib/preload.js
++++ b/node_modules/electron-screenshots/lib/preload.js
+@@ -14,34 +14,27 @@ var electron_1 = require("electron");
+ var map = new Map();
+ electron_1.contextBridge.exposeInMainWorld('screenshots', {
+     ready: function () {
+-        console.log('contextBridge ready');
+         electron_1.ipcRenderer.send('SCREENSHOTS:ready');
+     },
+     reset: function () {
+-        console.log('contextBridge reset');
+         electron_1.ipcRenderer.send('SCREENSHOTS:reset');
+     },
+     save: function (arrayBuffer, data) {
+-        console.log('contextBridge save', arrayBuffer, data);
+         electron_1.ipcRenderer.send('SCREENSHOTS:save', Buffer.from(arrayBuffer), data);
+     },
+     cancel: function () {
+-        console.log('contextBridge cancel');
+         electron_1.ipcRenderer.send('SCREENSHOTS:cancel');
+     },
+     ok: function (arrayBuffer, data) {
+-        console.log('contextBridge ok', arrayBuffer, data);
+         electron_1.ipcRenderer.send('SCREENSHOTS:ok', Buffer.from(arrayBuffer), data);
+     },
+     on: function (channel, fn) {
+         var _a;
+-        console.log('contextBridge on', fn);
+         var listener = function (event) {
+             var args = [];
+             for (var _i = 1; _i < arguments.length; _i++) {
+                 args[_i - 1] = arguments[_i];
+             }
+-            console.log.apply(console, __spreadArray(['contextBridge on', channel, fn], args, false));
+             fn.apply(void 0, args);
+         };
+         var listeners = (_a = map.get(fn)) !== null && _a !== void 0 ? _a : {};
+@@ -51,7 +44,6 @@ electron_1.contextBridge.exposeInMainWorld('screenshots', {
+     },
+     off: function (channel, fn) {
+         var _a;
+-        console.log('contextBridge off', fn);
+         var listeners = (_a = map.get(fn)) !== null && _a !== void 0 ? _a : {};
+         var listener = listeners[channel];
+         delete listeners[channel];

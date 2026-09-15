@@ -1,0 +1,28 @@
+# Qask notices
+
+## Project notice
+
+Copyright (c) 2026 iCreator
+
+Qask is licensed under the GNU Affero General Public License, version 3 or
+later (AGPL-3.0-or-later). See [LICENSE](LICENSE). A separate commercial
+license may be available from iCreator for use cases that cannot comply with
+the AGPL; see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+
+The Qask name and any associated logos are not granted for use by the license
+unless separately authorized.
+
+## Third-party components
+
+Qask is distributed with dependencies under their respective licenses. Before
+shipping a packaged application, generate and include a complete dependency
+notice file for the exact lockfile and target platform.
+
+The currently resolved direct runtime components include:
+
+- Electron — MIT
+- electron-screenshots — MIT
+- node-screenshots — Apache-2.0
+
+This notice is not a substitute for the complete notices required in a binary
+release.
