@@ -1,0 +1,146 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Qask Multi-Agent Bridge MVP</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self';">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="control-panel" data-collapsed="false">
+      <button id="sidebarToggle" class="collapse-toggle" aria-label="折叠侧边栏" aria-expanded="true">
+        <svg class="collapse-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+          <path d="M11.67 3.87L9.9 2.1 0 12l9.9 9.9 1.77-1.77L3.54 12z"/>
+          <path d="M22.24 3.87L20.47 2.1 10.57 12l9.9 9.9 1.77-1.77L14.11 12z"/>
+        </svg>
+      </button>
+      <div class="control-body">
+        <!-- 折叠侧边栏工具（仅在折叠时显示） -->
+        <div class="collapsed-toolbar">
+          <!-- 日期时间显示 -->
+          <div class="datetime-display">
+            <div class="date-text" id="collapsedDate">--</div>
+            <div class="time-text" id="collapsedTime">--:--</div>
+          </div>
+
+          <!-- 布局控制按钮（纵向） -->
+          <div class="collapsed-layout-buttons">
+            <button class="collapsed-layout-btn" data-layout="single" data-tooltip="单窗口" title="单窗口布局" aria-label="单窗口布局" aria-pressed="false">
+              <span class="layout-glyph layout-glyph--single"></span>
+            </button>
+            <button class="collapsed-layout-btn" data-layout="dual" data-tooltip="双窗口布局" title="双窗口布局" aria-label="双窗口布局" aria-pressed="false">
+              <span class="layout-glyph layout-glyph--dual"></span>
+            </button>
+            <button class="collapsed-layout-btn" data-layout="triple" data-tooltip="三窗口布局" title="三窗口布局" aria-label="三窗口布局" aria-pressed="false">
+              <span class="layout-glyph layout-glyph--triple"></span>
+            </button>
+            <button class="collapsed-layout-btn" data-layout="quad" data-tooltip="四窗口布局" title="四窗口布局" aria-label="四窗口布局" aria-pressed="false">
+              <span class="layout-glyph layout-glyph--quad"></span>
+            </button>
+          </div>
+
+          <!-- 截图按钮 -->
+          <button class="collapsed-action-btn" id="screenshotBtn" data-tooltip="截图" title="截取当前对话">
+            <span>📸</span>
+          </button>
+        </div>
+        <section class="panel-section">
+          <header><h2>布局控制</h2></header>
+          <div class="layout-grid" id="layoutControls" aria-label="窗口布局">
+            <button type="button" class="layout-button" data-layout="single" aria-label="单窗口布局" aria-pressed="false" title="单窗口布局">
+              <span class="layout-glyph layout-glyph--single"></span>
+            </button>
+            <button type="button" class="layout-button" data-layout="dual" aria-label="双窗口布局" aria-pressed="false" title="双窗口布局">
+              <span class="layout-glyph layout-glyph--dual"></span>
+            </button>
+            <button type="button" class="layout-button" data-layout="triple" aria-label="三窗口布局" aria-pressed="false" title="三窗口布局">
+              <span class="layout-glyph layout-glyph--triple"></span>
+            </button>
+            <button type="button" class="layout-button" data-layout="quad" aria-label="四窗口布局" aria-pressed="false" title="四窗口布局">
+              <span class="layout-glyph layout-glyph--quad"></span>
+            </button>
+          </div>
+        </section>
+        <!-- 网页模型管理 -->
+        <section class="panel-section" id="webModeSection">
+          <header><h2>模型网站管理</h2></header>
+          <div id="webModeContent" class="mode-content">
+            <div class="model-stack">
+              <ul id="modelList" class="model-list" aria-label="模型网站排序列表"></ul>
+              <p id="modelOrderStatus" class="model-order-status" role="status" aria-live="polite"></p>
+              <button id="modelAddButton" class="model-add-button" type="button" aria-label="添加模型" title="添加新的AI模型">
+                <span>+ 添加模型</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+    <div class="main-column">
+      <main class="workspace">
+        <div id="panelsContainer" class="panels-container" data-layout="dual"></div>
+      </main>
+      <footer class="composer">
+        <form id="broadcastForm" class="composer-form">
+          <div class="composer-input">
+            <button id="addAttachment" type="button" class="input-action-btn add-btn" aria-label="添加附件" title="添加图片、音频或 PDF 附件">
+              <span class="add-icon">+</span>
+            </button>
+            <textarea id="broadcastInput" rows="1" spellcheck="true" autofocus aria-label="向当前活动网站发送消息" placeholder="向当前活动网站提问"></textarea>
+            <div class="input-right-actions">
+              <button id="recordAudioButton" type="button" class="input-action-btn record-btn" aria-label="录制语音附件" title="录制语音附件">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true">
+                  <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/>
+                  <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V22H8v2h8v-2h-3v-2.06A9 9 0 0 0 21 11h-2Z"/>
+                </svg>
+              </button>
+              <button id="stopRecordingButton" type="button" class="input-action-btn stop-recording-btn" aria-label="停止录音并添加附件" title="停止录音" hidden>
+                <span aria-hidden="true">■</span>
+              </button>
+              <button id="cancelRecordingButton" type="button" class="input-action-btn cancel-recording-btn" aria-label="取消录音" title="取消录音" hidden>
+                <span aria-hidden="true">×</span>
+              </button>
+              <button id="sendButton" type="submit" class="input-action-btn send-btn" aria-label="发送消息" title="发送消息 (Enter)" disabled>
+                <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true">
+                  <path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/>
+                </svg>
+              </button>
+            </div>
+            <input id="attachmentInput" type="file" hidden multiple accept="image/png,image/jpeg,image/gif,image/webp,audio/*,application/pdf,.pdf,.webm,.ogg,.mp3,.wav,.m4a,.aac,.flac">
+          </div>
+          <ul id="attachmentPreview" class="attachment-preview" aria-label="待发送附件" aria-live="polite"></ul>
+        </form>
+      </footer>
+    </div>
+  </div>
+  <div id="modelAddDialog" class="model-add-dialog" role="dialog" aria-modal="true" aria-labelledby="modelAddDialogTitle" hidden>
+    <div class="model-add-backdrop" data-dismiss></div>
+    <div class="model-add-panel">
+      <h3 id="modelAddDialogTitle">添加模型</h3>
+      <form id="modelAddForm" class="model-add-form">
+        <label class="model-add-field">
+          <span>模型名称</span>
+          <input id="modelAddName" name="label" type="text" autocomplete="off" required placeholder="例如：Poe" maxlength="32">
+        </label>
+        <label class="model-add-field">
+          <span>模型网址</span>
+          <input id="modelAddUrl" name="url" type="url" required placeholder="https://example.com/">
+        </label>
+        <p class="model-add-hint">请输入完整 HTTPS 网址。自定义网站默认只填入内容，不会自动发送。</p>
+        <label class="model-add-autosend">
+          <input id="modelAddAutoSend" name="allowAutoSend" type="checkbox">
+          <span>我确认信任此网站，并允许 Qask 自动发送文本</span>
+        </label>
+        <div class="model-add-actions">
+          <button type="button" id="modelAddCancel" class="model-add-cancel">取消</button>
+          <button type="submit" class="model-add-confirm">添加</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <script type="module" src="./renderer.js"></script>
+</body>
+</html>

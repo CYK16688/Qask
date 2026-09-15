@@ -1,0 +1,21 @@
+# Publish only the explicit package.json "files" allowlist.
+*
+!main.js
+!local-data-boundary.cjs
+!preload.js
+!src/
+!src/**
+!docs/
+!docs/**
+!scripts/
+!scripts/run-electron.js
+!scripts/local-data-boundary-smoke.js
+!patches/
+!patches/electron-screenshots+0.5.27.patch
+!README.md
+!LICENSE
+!NOTICE
+!PRIVACY.md
+!SECURITY.md
+!CONTRIBUTING.md
+!COMMERCIAL-LICENSE.md
