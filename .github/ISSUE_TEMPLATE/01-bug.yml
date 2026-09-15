@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible problem in Qask.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Qask.
+
+        Do not include passwords, tokens, cookies, private data, or security details.
+        For a security vulnerability, use the private reporting link on the issue chooser instead.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+      placeholder: Tell us what happened and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest safe sequence that reproduces the problem.
+      placeholder: |
+        1. Start Qask
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: qask-version
+    attributes:
+      label: Qask version or commit
+      description: Use a public release version or the commit ID; do not include local paths.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Safe logs or screenshots
+      description: Redact account information, local paths, prompts, attachments, and any credentials before posting.
+      placeholder: Paste redacted logs only.
+    validations:
+      required: false

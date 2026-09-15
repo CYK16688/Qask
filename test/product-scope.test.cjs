@@ -106,6 +106,22 @@ test('public source distribution has an explicit allowlist and excludes developm
   assert.doesNotMatch(npmIgnore, /^!test\//m);
 });
 
+test('public issue intake routes security reports to the private vulnerability channel', () => {
+  const issueConfig = readProjectFile('.github/ISSUE_TEMPLATE/config.yml');
+  const bugForm = readProjectFile('.github/ISSUE_TEMPLATE/01-bug.yml');
+  const featureForm = readProjectFile('.github/ISSUE_TEMPLATE/02-feature.yml');
+
+  assert.match(issueConfig, /^blank_issues_enabled:\s*false$/m);
+  assert.match(issueConfig, /name:\s*Security vulnerability/i);
+  assert.match(issueConfig, /about:\s*Do not report security vulnerabilities in public issues\./i);
+  assert.match(issueConfig, /url:\s*https:\/\/github\.com\/aiwalllet\/Qask\/security\/advisories\/new/i);
+  assert.match(bugForm, /^name:\s*Bug report$/m);
+  assert.match(bugForm, /^labels:\s*\["bug", "triage"\]$/m);
+  assert.match(bugForm, /Do not include passwords, tokens, cookies, private data, or security details\./);
+  assert.match(featureForm, /^name:\s*Feature request$/m);
+  assert.match(featureForm, /^labels:\s*\["enhancement", "triage"\]$/m);
+});
+
 test('public documentation and package metadata state the AGPL source and commercial-exception model without promising third-party delivery control', () => {
   const privacy = readProjectFile('PRIVACY.md');
   const readme = readProjectFile('README.md');
@@ -139,6 +155,8 @@ test('public documentation and package metadata state the AGPL source and commer
   assert.match(commercial, /commercial license/i);
   assert.match(notice, /Copyright \(c\) 2026 iCreator/);
   assert.match(notice, /AGPL-3\.0-or-later/);
+  assert.match(notice, /patch-package — MIT/);
+  assert.match(notice, /node-screenshots.*transitive runtime dependency/s);
   assert.match(license, /GNU AFFERO GENERAL PUBLIC LICENSE/);
   assert.match(license, /Version 3, 19 November 2007/);
   assert.equal(packageJson.author, 'iCreator');

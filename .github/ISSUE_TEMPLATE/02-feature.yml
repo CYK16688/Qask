@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose an improvement to Qask's local multi-AI web workspace.
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement.
+
+        Do not include account data, credentials, private prompts, provider cookies, or non-public product information.
+        Security vulnerabilities must use the private reporting link on the issue chooser.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the user problem rather than only a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Explain the behavior users should be able to achieve.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Share any safe alternatives or workarounds you considered.
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy and security
+      options:
+        - label: This request does not require Qask to read local Git/GitHub data, credentials, cookies, or unselected files.
+          required: true
+        - label: I have not included private prompts, local paths, credentials, or provider account data.
+          required: true
