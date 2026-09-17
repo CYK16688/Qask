@@ -1,7 +1,7 @@
 # Qask release checklist
 
-Qask is released as source plus a signed but not notarized macOS arm64 preview DMG. Complete
-this checklist before publishing a source release or binary release.
+Qask is released as source plus a signed macOS arm64 DMG. Complete this checklist before
+publishing a source release or binary release.
 
 ## Repository and security
 
@@ -42,10 +42,44 @@ screenshots containing account data, or build artifacts.
 - For a desktop binary, generate complete dependency notices for the exact
   lockfile and target platform before distribution.
 
+## macOS notarization
+
+The Developer ID certificate signs the app; notarization is a separate Apple
+service submission. Xcode account sign-in does not automatically create a
+`notarytool` credential profile.
+
+Create the profile once on the release machine. The command deliberately asks
+for the password through a hidden prompt, so the app-specific password is not
+saved in shell history:
+
+```bash
+xcrun notarytool store-credentials QaskNotary \
+  --apple-id "YOUR_APPLE_ID" \
+  --team-id DCLBAFF9Y6
+```
+
+At the prompt, enter the 16-character app-specific password generated at
+`appleid.apple.com`, not the normal Apple ID password and not the macOS login
+password. If validation reports that the credentials are incorrect, create a
+new app-specific password, copy it without surrounding whitespace, and rerun
+the command. The Apple ID must be the account belonging to Team ID
+`DCLBAFF9Y6`.
+
+After the profile is saved, rebuild and notarize the DMG:
+
+```bash
+npm run package:mac
+npm run notarize:mac
+```
+
+Use another profile name with `APPLE_KEYCHAIN_PROFILE=ProfileName npm run notarize:mac`.
+The script submits the DMG, staples and validates the ticket, verifies the
+DMG checksum, and refreshes the `.sha256` file. Re-upload both files to the
+GitHub Release only after these checks pass; stapling changes the DMG bytes.
+
 ## Desktop binaries
 
-The current macOS arm64 DMG is signed with a Developer ID Application
-certificate but is not notarized. Gatekeeper may still warn and macOS
-permissions must be reviewed on the target machine. Before calling a desktop
-binary production-ready, complete notarization, permission-copy review, update
-distribution, and clean-account validation.
+The macOS arm64 DMG must be signed with a Developer ID Application certificate
+and notarized before being described as production-ready. Gatekeeper behavior
+and macOS permissions must still be reviewed on the target machine, including
+permission-copy review and clean-account validation.
