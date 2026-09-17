@@ -17,6 +17,7 @@
     "local-data-boundary.cjs",
     "preload.js",
     "src/",
+    "assets/",
     "docs/",
     "scripts/run-electron.js",
     "scripts/local-data-boundary-smoke.js",
@@ -35,6 +36,7 @@
     "test": "node --test test/**/*.test.cjs",
     "test:layout-ui": "electron scripts/layout-ui-smoke.js",
     "check:public-source": "node scripts/verify-public-source.cjs",
+    "package:mac": "electron-builder --mac dmg --arm64 --publish never",
     "postinstall": "patch-package"
   },
   "keywords": [
@@ -49,8 +51,44 @@
     "node": ">=22.12.0"
   },
   "dependencies": {
+    "electron-screenshots": "0.5.27"
+  },
+  "devDependencies": {
     "electron": "44.3.0",
-    "electron-screenshots": "0.5.27",
+    "electron-builder": "^26.15.3",
     "patch-package": "8.0.1"
+  },
+  "build": {
+    "appId": "com.icreator.qask",
+    "productName": "Qask",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "local-data-boundary.cjs",
+      "preload.js",
+      "src/**/*",
+      "assets/qask.icns",
+      "assets/qask-logo.svg",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/qask.icns",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "Qask",
+      "artifactName": "Qask-${version}-${arch}.${ext}"
+    }
   }
 }

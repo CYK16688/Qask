@@ -78,6 +78,7 @@ test('public source distribution has an explicit allowlist and excludes developm
     'local-data-boundary.cjs',
     'preload.js',
     'src/',
+    'assets/',
     'docs/',
     'scripts/run-electron.js',
     'scripts/local-data-boundary-smoke.js',
@@ -94,6 +95,7 @@ test('public source distribution has an explicit allowlist and excludes developm
   assert.match(npmIgnore, /^!main\.js$/m);
   assert.match(npmIgnore, /^!local-data-boundary\.cjs$/m);
   assert.match(npmIgnore, /^!src\/\*\*$/m);
+  assert.match(npmIgnore, /^!assets\/\*\*$/m);
   assert.match(npmIgnore, /^!docs\/\*\*$/m);
   assert.match(npmIgnore, /^!scripts\/run-electron\.js$/m);
   assert.match(npmIgnore, /^!scripts\/local-data-boundary-smoke\.js$/m);
@@ -424,13 +426,29 @@ test('screenshot dependency logging is patched out and the host supplies a no-op
   const main = readProjectFile('main.js');
   const patch = readProjectFile('patches/electron-screenshots+0.5.27.patch');
 
-  assert.equal(packageJson.dependencies['patch-package'], '8.0.1');
+  assert.equal(packageJson.devDependencies['patch-package'], '8.0.1');
   assert.equal(packageJson.scripts.postinstall, 'patch-package');
   assert.match(main, /new Screenshots\(\{ singleWindow: true, logger: \(\) => \{\} \}\)/);
   assert.match(patch, /--- a\/node_modules\/electron-screenshots\/lib\/preload\.js/);
   assert.doesNotMatch(patch, /^\+.*console\.log/m);
   assert.match(patch, /-\s*console\.log\('contextBridge save', arrayBuffer, data\);/);
   assert.match(patch, /-\s*console\.log\.apply\(console, __spreadArray/);
+});
+
+test('macOS packaging uses the Qask icon and produces an arm64 DMG without signing claims', () => {
+  const packageJson = JSON.parse(readProjectFile('package.json'));
+
+  assert.equal(packageJson.scripts['package:mac'], 'electron-builder --mac dmg --arm64 --publish never');
+  assert.equal(packageJson.build.appId, 'com.icreator.qask');
+  assert.equal(packageJson.build.productName, 'Qask');
+  assert.equal(packageJson.build.mac.icon, 'assets/qask.icns');
+  assert.equal(packageJson.build.mac.identity, null);
+  assert.deepEqual(packageJson.build.mac.target, [{
+    target: 'dmg',
+    arch: ['arm64'],
+  }]);
+  assert.ok(fs.statSync(path.join(root, 'assets', 'qask-logo.svg')).isFile());
+  assert.ok(fs.statSync(path.join(root, 'assets', 'qask.icns')).isFile());
 });
 
 test('automatic screenshots use collision-resistant local filenames', () => {
@@ -581,13 +599,13 @@ test('runtime Electron is pinned to the audited supported release line', () => {
   const packageJson = JSON.parse(readProjectFile('package.json'));
   const lockfile = JSON.parse(readProjectFile('package-lock.json'));
 
-  assert.equal(packageJson.dependencies.electron, '44.3.0');
+  assert.equal(packageJson.devDependencies.electron, '44.3.0');
   assert.equal(packageJson.dependencies['electron-screenshots'], '0.5.27');
-  assert.equal(packageJson.dependencies['patch-package'], '8.0.1');
+  assert.equal(packageJson.devDependencies['patch-package'], '8.0.1');
   assert.equal(packageJson.engines.node, '>=22.12.0');
-  assert.equal(lockfile.packages[''].dependencies.electron, '44.3.0');
+  assert.equal(lockfile.packages[''].devDependencies.electron, '44.3.0');
   assert.equal(lockfile.packages[''].dependencies['electron-screenshots'], '0.5.27');
-  assert.equal(lockfile.packages[''].dependencies['patch-package'], '8.0.1');
+  assert.equal(lockfile.packages[''].devDependencies['patch-package'], '8.0.1');
   assert.match(readProjectFile('package.json'), /"private": true/);
   assert.doesNotMatch(readProjectFile('package.json'), /"package-lock"/);
   assert.equal(
