@@ -19,10 +19,13 @@ do not wish to meet the AGPL-3.0-or-later conditions, for example proprietary
 distribution or a proprietary hosted modification.
 
 No commercial exception is granted by this repository or by this document.
-Until iCreator publishes a business contact channel, commercial-license
-inquiries cannot be submitted through Qask's public issue tracker. Do not post
-contracts, customer data, credentials, or other confidential information in a
-public issue.
+Any separate commercial license offered by iCreator applies only to code and
+assets for which iCreator controls the necessary rights. Contributions remain
+under their stated open-source license unless their copyright holders enter a
+separate written agreement. Until iCreator publishes a business contact
+channel, commercial-license inquiries cannot be submitted through Qask's public
+issue tracker. Do not post contracts, customer data, credentials, or other
+confidential information in a public issue.
 
 ## Trademarks
 

@@ -65,6 +65,14 @@ test('public source distribution has an explicit allowlist and excludes developm
   const npmIgnore = readProjectFile('.npmignore');
 
   assert.equal(packageJson.private, true);
+  assert.deepEqual(packageJson.repository, {
+    type: 'git',
+    url: 'git+https://github.com/cyk16688/Qask.git',
+  });
+  assert.equal(packageJson.homepage, 'https://github.com/cyk16688/Qask#readme');
+  assert.deepEqual(packageJson.bugs, {
+    url: 'https://github.com/cyk16688/Qask/issues',
+  });
   assert.deepEqual(packageJson.files, [
     'main.js',
     'local-data-boundary.cjs',
@@ -96,6 +104,7 @@ test('public source distribution has an explicit allowlist and excludes developm
   assert.match(npmIgnore, /^!CONTRIBUTING\.md$/m);
   assert.match(npmIgnore, /^!COMMERCIAL-LICENSE\.md$/m);
   assert.match(readProjectFile('.gitignore'), /^artifacts\/$/m);
+  assert.match(readProjectFile('.gitignore'), /^\.worktrees\/$/m);
   assert.match(readProjectFile('.gitignore'), /^\.npm\/$/m);
   assert.match(readProjectFile('.gitignore'), /^\.npmrc$/m);
   assert.match(readProjectFile('.gitignore'), /^\.pypirc$/m);
@@ -114,7 +123,7 @@ test('public issue intake routes security reports to the private vulnerability c
   assert.match(issueConfig, /^blank_issues_enabled:\s*false$/m);
   assert.match(issueConfig, /name:\s*Security vulnerability/i);
   assert.match(issueConfig, /about:\s*Do not report security vulnerabilities in public issues\./i);
-  assert.match(issueConfig, /url:\s*https:\/\/github\.com\/aiwalllet\/Qask\/security\/advisories\/new/i);
+  assert.match(issueConfig, /url:\s*https:\/\/github\.com\/cyk16688\/Qask\/security\/advisories\/new/i);
   assert.match(bugForm, /^name:\s*Bug report$/m);
   assert.match(bugForm, /^labels:\s*\["bug", "triage"\]$/m);
   assert.match(bugForm, /Do not include passwords, tokens, cookies, private data, or security details\./);
@@ -143,20 +152,27 @@ test('public documentation and package metadata state the AGPL source and commer
   assert.match(readme, /SECURITY\.md/);
   assert.match(readme, /完整源码仓库 checkout/);
   assert.match(readme, /最小运行时包[\s\S]*不包含 `package-lock\.json`、测试套件或 GUI smoke 脚本/);
-  assert.match(readme, /AGPL-3\.0-or-later/);
+  assert.match(readme, /open source under \*\*AGPL-3\.0-or-later\*\*/i);
   assert.match(readme, /Copyright © 2026 iCreator/);
   assert.match(readme, /COMMERCIAL-LICENSE\.md/);
   assert.match(security, /Private vulnerability reporting/i);
   assert.match(security, /Report a vulnerability/i);
+  assert.match(security, /cyk16688\/Qask\/security\/advisories\/new/i);
+  assert.match(security, /must enable GitHub Private Vulnerability Reporting/i);
   assert.match(contributing, /AGPL-3\.0-or-later/);
   assert.match(contributing, /GitHub's private vulnerability reporting flow/i);
+  assert.match(contributing, /does not currently use a CLA/i);
   assert.match(architecture, /window\.qask\.attachments\.inspect/);
   assert.match(commercial, /AGPL-3\.0-or-later/);
   assert.match(commercial, /commercial license/i);
+  assert.match(commercial, /Contributions remain\s+under their stated open-source license/i);
   assert.match(notice, /Copyright \(c\) 2026 iCreator/);
   assert.match(notice, /AGPL-3\.0-or-later/);
+  assert.match(notice, /Documentation screenshots/);
   assert.match(notice, /patch-package — MIT/);
   assert.match(notice, /node-screenshots.*transitive runtime dependency/s);
+  assert.match(readProjectFile('docs/release-checklist.md'), /Private Vulnerability Reporting/);
+  assert.match(readProjectFile('docs/release-checklist.md'), /npm run check:public-source/);
   assert.match(license, /GNU AFFERO GENERAL PUBLIC LICENSE/);
   assert.match(license, /Version 3, 19 November 2007/);
   assert.equal(packageJson.author, 'iCreator');

@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/aiwalllet/Qask/security/advisories/new
+    url: https://github.com/cyk16688/Qask/security/advisories/new
     about: Do not report security vulnerabilities in public issues.
