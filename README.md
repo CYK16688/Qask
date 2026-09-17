@@ -1,94 +1,192 @@
-﻿# Qask
+# Qask
 
-Qask is available as source under **AGPL-3.0-or-later**. Commercial users may
-use it under the AGPL when they meet its terms; iCreator may offer a separate
-commercial license for proprietary distribution or proprietary hosted
-modifications. See [LICENSE](LICENSE) and
-[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+**A private, local Electron workspace for asking the same question across multiple AI websites and comparing the answers side by side.**
 
-Copyright © 2026 iCreator.
+> **Source status:** Qask is source-available under **AGPL-3.0-or-later**. It is currently a desktop prototype: no packaged binaries are published or supported.
 
-> **Release status:** the repository contains source only. No packaged desktop
-> binaries are published or supported yet.
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-8a2be2.svg)](LICENSE)
+[![Electron](https://img.shields.io/badge/Electron-44.3.0-47848f.svg)](https://www.electronjs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg)](https://nodejs.org/)
 
-Qask 是一个 Electron 桌面原型：将多个 AI 官方网页放在同一工作区中，以一次输入并行发起对话，帮助用户横向比较不同模型的回答。
+[English](#overview) · [中文](#中文说明)
 
-> 当前优先实现网页模式的多模型对话与结果比较。API 模式尚未实现真实调用，已从当前产品范围中移除，不能用于发送 API 请求。
+![Qask four-panel workspace: choose a layout, order model websites, and use one composer for the active panels.](docs/images/layout-quad.png)
 
-## 当前能力
+## Overview
 
-- 1、2、3、4 面板布局，可在侧栏切换或使用 `Alt + ← / →` 切换。
-- 内置 ChatGPT、Gemini、豆包、Claude、Copilot、DeepSeek、Kimi 七个网页入口。
-- 每个内置网页使用独立的持久化 Electron 分区；完成登录后，登录状态通常会保留在本机。
-- 可添加自定义 HTTPS 网页模型。
-- 底部统一输入框可并发尝试向所有活动面板发送文本；`Enter` 发送，`Shift + Enter` 换行。
-- 支持本地图片、音频或 PDF 附件：可选择文件、粘贴图片，或用麦克风进行本地录音。附件会保留在 Qask 本地；使用附件时，请在每个目标网站自己的可见上传界面中选择、确认并发送。
-- 支持截图，截图会保存到系统 `Pictures/Qask Screenshots` 目录。
+Qask puts the official websites you choose in one desktop workspace. Sign in to each website yourself, select a one-, two-, three-, or four-panel layout, and send the same text to the active panels. Compare the responses directly in their original web UIs.
 
-## 运行
+Qask is **not** a multi-provider API client. It does not use model APIs, extract answers, store conversation history, or create a combined answer view.
 
-### 前提
+## Why Qask?
 
-- macOS（当前主要验证目标）
-- Node.js 与 npm
+- **Compare in context** — keep each provider's own website, account, model selection, and conversation context visible.
+- **One prompt, multiple sites** — use a unified composer to attempt concurrent text delivery to active panels.
+- **Flexible workspace** — switch between focused, side-by-side, three-column, and 2×2 layouts.
+- **Local by design** — Qask has no Git, GitHub, repository scanning, cloud sync, or provider API integration.
+- **Explicit attachment handling** — images, audio, PDFs, and microphone recordings stay in a local queue; use each provider's visible upload UI to upload and send them.
 
-### 安装与启动
+## Screenshots
 
-以下命令适用于**完整源码仓库 checkout**；其中 `package-lock.json` 提供可复现的开发安装，测试和 GUI smoke 文件也只随完整仓库提供。
+| One panel | Two panels |
+| --- | --- |
+| ![One-panel focused workspace.](docs/images/layout-single.png) | ![Two-panel comparison workspace.](docs/images/layout-dual.png) |
+| Focus on one AI website. | Compare two websites side by side. |
+
+| Three panels | Four panels |
+| --- | --- |
+| ![Three-panel comparison workspace.](docs/images/layout-triple.png) | ![Four-panel 2 by 2 comparison workspace.](docs/images/layout-quad.png) |
+| Keep three sources visible at once. | Use a 2×2 grid for four sources. |
+
+The screenshots were captured in a fresh, unauthenticated Qask profile after each active third-party page reached `document.readyState === "complete"`, followed by an additional four-second settle period. They contain no account identity, user prompt, response, credential, or conversation history. The visible pages are public landing, sign-in, or verification states—some services may show an anti-bot gate—so they demonstrate loaded webviews and layout, not successful third-party message delivery or model output.
+
+## Features
+
+### Workspace and websites
+
+- One, two, three, and four panel layouts; cycle layouts with `Alt + ←` / `Alt + →`.
+- Built-in website entries for ChatGPT, Gemini, 豆包, Claude, Copilot, DeepSeek, and Kimi.
+- Drag to reorder websites; the first *N* sites populate an *N*-panel layout without unnecessarily reloading existing pages.
+- Add a custom **HTTPS** website. Custom sites are fill-only by default; automatic send requires explicit consent for that exact origin.
+- A separate persistent Electron session partition per website, so website logins are isolated and typically survive an app restart on the same machine.
+
+### Composer, attachments, and screenshots
+
+- A shared bottom composer for the active panels: `Enter` sends, `Shift + Enter` inserts a newline.
+- Local attachment queue for images, audio, and PDFs: up to 5 files and 20 MB total. Images are limited to 5 MB; audio and PDFs to 10 MB each.
+- Explicit local microphone recording (up to 2 minutes); recordings become local audio attachments.
+- Attachment turns are never injected or auto-sent by Qask. Choose, preview, and send files through the target website's own visible upload interface.
+- Screen-region capture saved locally to `~/Pictures/Qask Screenshots/`.
+
+### Privacy and security boundaries
+
+- No Git, GitHub, filesystem scanning, API-key storage, cloud sync, or provider API requests.
+- Qask does not read or upload repositories, `.git`, Git configuration, GitHub CLI data, SSH keys, cookies, environment files, or browser profiles.
+- Only text you explicitly submit is offered to active third-party webpages. Qask validates trusted HTTPS origins before text injection.
+- Remote websites run in isolated, sandboxed webviews with Node access, popups, downloads, and provider permissions denied.
+
+Read the complete [privacy and local-data boundary](PRIVACY.md) and [security policy](SECURITY.md) before using Qask with sensitive information.
+
+## Quick start
+
+### Requirements
+
+- macOS is the primary tested target.
+- Node.js **22.12.0 or later** and npm.
+- A **完整源码仓库 checkout** (full source checkout), including `package-lock.json` and the `test/` directory.
+
+### Install and run
 
 ```bash
+git clone https://github.com/aiwalllet/Qask.git
+cd Qask
 npm ci
 npm start
 ```
 
-`npm pack` 生成的是最小运行时包，不包含 `package-lock.json`、测试套件或 GUI smoke 脚本；它不是可验证的独立源码发行包。公开源码仓库或源码归档必须包含这些开发文件后，才可按上述流程安装和验证。
+On first launch, sign in inside each website panel. Then select a layout, arrange the websites in the sidebar, and send a prompt from the bottom composer.
 
-首次启动后，请在各网页面板内自行完成账号登录，然后再用底部输入框广播问题。
-
-如果 `npm start` 报 `spawn ENOEXEC` 或 Electron 指向 `electron.exe`，说明 `node_modules` 来自 Windows 安装。删除依赖后在本机重装：
+If Electron reports `spawn ENOEXEC` or attempts to use `electron.exe`, the dependencies were installed on a different platform. Reinstall them on the target machine:
 
 ```bash
 rm -rf node_modules
 npm ci
 ```
 
-不要手工修改 `node_modules/electron/path.txt` 或复制 Electron 二进制文件。
+Do not modify `node_modules/electron/path.txt` or copy Electron binaries between platforms.
 
-## 使用说明
+`npm pack` creates a **最小运行时包**. It **不包含 `package-lock.json`、测试套件或 GUI smoke 脚本** (does not include `package-lock.json`, the test suite, or GUI smoke scripts), so it is not a standalone source distribution for development verification.
 
-见 [docs/user-guide.md](docs/user-guide.md)。
+## How it works
 
-## 隐私与安全
+1. **Choose your layout.** Use the sidebar or `Alt + ←` / `Alt + →`.
+2. **Order websites.** Drag entries in “Model Website Management”; the first *N* populate the active *N*-panel layout.
+3. **Sign in directly.** Every website remains its own web session, governed by its own terms and privacy policy.
+4. **Send text.** Enter a question in the shared composer. Qask attempts to fill and, where permitted, trigger each active website's own send control.
+5. **Compare on the pages.** Qask does not claim that a provider accepted a prompt or generated a response—use the actual panel content as the source of truth.
 
-- [PRIVACY.md](PRIVACY.md) — 本地数据、GitHub 信息与第三方网站之间的边界。
-- [SECURITY.md](SECURITY.md) — 漏洞报告与发布前安全门槛。
-- [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献时必须遵守的数据处理规则。
-- [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) — AGPL 与单独商业授权的说明。
-- [NOTICE](NOTICE) — 项目与第三方组件声明。
+For attachments, Qask deliberately stops before provider-page automation: upload, review, and send through the visible interface of every target website.
 
-Qask 不包含 Git 或 GitHub 集成，运行时不会扫描、读取或上传 `.git`、GitHub CLI 配置、Git 凭据、SSH 密钥、浏览器 Cookie 或本地项目文件。只有你明确提交的输入文本和明确选择的受支持附件，才会尝试交给已打开的第三方网页；请阅读完整的 [PRIVACY.md](PRIVACY.md) 了解限制。
+## Development
 
-## 架构、限制与开发说明
+```bash
+npm test
+```
 
-见 [docs/architecture.md](docs/architecture.md)。
+Additional local UI smoke coverage is available with:
 
-## 已知限制
+```bash
+npm run test:layout-ui
+```
 
-- 网页发送依赖第三方网站的页面结构。站点改版、未登录、验证码或反自动化限制都可能导致发送失败。
-- 当前发送状态表示 Qask 对网页执行了输入/点击尝试，不等同于模型一定已接受请求或生成回答。
-- Qask 不会把附件交给第三方网页脚本。文件上传、模型读取、语音转写或实时语音对话均不由 Qask 证明；请在每个网页自己的上传界面中确认并手动发送。
-- Gemini 的注入脚本已通过自动化生成脚本语法检查；实际网页适配仍需随站点更新持续验证。
-- API 调用、回答自动提取、对比视图、会话保存和导出尚未实现。
-- 当前网页模式不提供 API 配置；启动时会删除旧版遗留的 API Key 与模式存储键，且不会读取或输出其内容。后续只有在安全密钥存储和完整请求链路完成后才会重新引入 API 功能。
-- 当前 Electron 原型已启用 web security、隔离 guest、拒绝 provider 权限和外部弹窗；仍须完成打包签名、`NSMicrophoneUsageDescription` 与真实网站附件验收后才能作为正式产品发布。
+The project uses Electron 44.3.0 and Node's built-in test runner. See [docs/architecture.md](docs/architecture.md) for the startup chain, webview isolation model, state model, IPC boundary, and known limitations.
 
-## 路线图
+## Current limitations
 
-1. 稳定网页并发对话与持续多轮发送。
-2. 为各站点适配器建立可回归验证。
-3. 交付用户可见的回答对比能力。
-4. 在明确的数据控制与隐私设计完成后，再考虑本地会话保存和导出。
+- Website adapters depend on third-party DOM structures, login state, bot checks, and service availability; a send attempt is not proof that a website accepted the message.
+- Qask does not support provider APIs, streaming, answer extraction, automatic comparison, local conversation storage, or export.
+- Websites may change without notice and break their text adapters.
+- Qask does not upload attachments to provider websites, verify uploads, or prove that a model read an attachment.
+- macOS microphone and screen-capture permissions may be required for recording and screenshots.
+- This source prototype still needs packaging, signing, notarization, and clean-account validation before a production desktop release.
 
-## 非关联声明
+## Documentation
 
-Qask 与 OpenAI、Google、Anthropic、Microsoft、字节跳动、DeepSeek、月之暗面及其产品没有隶属、赞助或授权关系。各网站、商标和服务条款归其各自权利人所有；使用者须自行遵守相应条款。
+- [User guide](docs/user-guide.md)
+- [Architecture and development notes](docs/architecture.md)
+- [Privacy and local-data boundary](PRIVACY.md)
+- [Security policy](SECURITY.md)
+- [Contribution guide](CONTRIBUTING.md)
+- [Commercial licensing](COMMERCIAL-LICENSE.md)
+- [Notices](NOTICE)
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) first. Do not include credentials, browser profiles, local data, screenshots containing private content, or exploit details in public issues or pull requests.
+
+## Security
+
+Report vulnerabilities through GitHub's **Private vulnerability reporting** flow in the repository's **Security → Advisories** area. If that flow is unavailable, do not place secrets, cookies, private repository information, personal data, or exploit details in a public issue. See [SECURITY.md](SECURITY.md).
+
+## License
+
+Copyright © 2026 iCreator.
+
+Qask is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (**AGPL-3.0-or-later**). Commercial users may use Qask under the AGPL when they meet its terms; iCreator may offer separate commercial licensing for proprietary distribution or proprietary hosted modifications. See [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+
+## Trademark notice
+
+Qask is not affiliated with, sponsored by, or endorsed by OpenAI, Google, Anthropic, Microsoft, 字节跳动, DeepSeek, 月之暗面, or their products. Names and trademarks of third-party websites belong to their respective owners. Users are responsible for complying with the terms of each service they open.
+
+---
+
+## 中文说明
+
+Qask 是一个本地 Electron 桌面工作区：把你选择的 AI 官方网页并排放在一个窗口中，通过统一输入框尝试同时发送同一问题，再直接在各网站原生界面中人工比较回答。
+
+### 主要能力
+
+- 支持单、双、三、四面板布局，`Alt + ← / →` 可快速切换。
+- 内置 ChatGPT、Gemini、豆包、Claude、Copilot、DeepSeek、Kimi 网页入口；可拖动排序，当前布局使用前 *N* 个网站。
+- 可添加**自定义 HTTPS 网页模型**；默认只填入文字，只有对精确 origin 明确授权后才会尝试自动发送。
+- 每个网站拥有独立持久化 Electron 会话分区，登录状态相互隔离，通常可在本机重启后保留。
+- 统一输入框可向活动面板并发尝试填入/发送文本；`Enter` 发送，`Shift + Enter` 换行。
+- 支持本地图片、音频或 PDF 队列和显式麦克风本地录音，但附件不会由 Qask 自动传给第三方网页，必须在各网站可见上传界面中自行确认和发送。
+- 支持本地截图，保存至 `~/Pictures/Qask Screenshots/`。
+
+### 安装与启动
+
+```bash
+git clone https://github.com/aiwalllet/Qask.git
+cd Qask
+npm ci
+npm start
+```
+
+当前主要在 macOS 上验证，需要 Node.js 22.12.0 或更高版本。完整使用说明见 [docs/user-guide.md](docs/user-guide.md)。
+
+### 隐私边界
+
+Qask 不包含 Git、GitHub、目录扫描、云同步或模型 API 集成；不会扫描、读取或上传 `.git`、本地仓库、GitHub CLI 配置、SSH 密钥、Cookie、环境文件或浏览器 profile。只有你明确提交的文字才会被尝试交给活动的第三方网页。完整说明见 [PRIVACY.md](PRIVACY.md)。Qask 与 OpenAI、Google、Anthropic、Microsoft、字节跳动、DeepSeek、月之暗面及其产品**没有隶属、赞助或授权关系**。
+
+> Qask 不是 API 聚合客户端，也尚未提供回答自动提取、对比视图、会话保存或导出。第三方网页是否接收消息、上传附件或生成回答，应以网页实际显示为准。
