@@ -1,6 +1,6 @@
 # Qask release checklist
 
-Qask is released as source plus an unsigned macOS arm64 preview DMG. Complete
+Qask is released as source plus a signed but not notarized macOS arm64 preview DMG. Complete
 this checklist before publishing a source release or binary release.
 
 ## Repository and security
@@ -44,8 +44,8 @@ screenshots containing account data, or build artifacts.
 
 ## Desktop binaries
 
-The current macOS arm64 DMG is an unsigned preview artifact for evaluation.
-Gatekeeper may warn and macOS permissions must be reviewed on the target
-machine. Before calling a desktop binary production-ready, complete signing,
-notarization, permission-copy review, update distribution, and clean-account
-validation.
+The current macOS arm64 DMG is signed with a Developer ID Application
+certificate but is not notarized. Gatekeeper may still warn and macOS
+permissions must be reviewed on the target machine. Before calling a desktop
+binary production-ready, complete notarization, permission-copy review, update
+distribution, and clean-account validation.
