@@ -37,6 +37,7 @@
     "test:layout-ui": "electron scripts/layout-ui-smoke.js",
     "check:public-source": "node scripts/verify-public-source.cjs",
     "package:mac": "electron-builder --mac dmg --arm64 --publish never",
+    "notarize:mac": "node scripts/notarize-mac.cjs",
     "postinstall": "patch-package"
   },
   "keywords": [

@@ -460,6 +460,19 @@ test('macOS packaging uses the Qask icon and enables Developer ID signing', () =
   assert.ok(fs.statSync(path.join(root, 'assets', 'qask.icns')).isFile());
 });
 
+test('macOS notarization uses a keychain profile and never accepts a password argument', () => {
+  const packageJson = JSON.parse(readProjectFile('package.json'));
+  const notarizeScript = readProjectFile('scripts/notarize-mac.cjs');
+
+  assert.equal(packageJson.scripts['notarize:mac'], 'node scripts/notarize-mac.cjs');
+  assert.match(notarizeScript, /APPLE_KEYCHAIN_PROFILE/);
+  assert.match(notarizeScript, /notarytool', 'submit'/);
+  assert.match(notarizeScript, /'--keychain-profile', profile/);
+  assert.match(notarizeScript, /stapler', 'staple'/);
+  assert.match(notarizeScript, /hdiutil', \['verify'/);
+  assert.doesNotMatch(notarizeScript, /--password/);
+});
+
 test('automatic screenshots use collision-resistant local filenames', () => {
   const writePaths = [];
   const createSaveScreenshot = loadSaveScreenshot();
