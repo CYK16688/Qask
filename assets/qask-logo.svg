@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Qask logo</title>
+  <desc id="desc">A geometric Q-shaped conversation mark with three connected model nodes.</desc>
+  <rect width="1024" height="1024" rx="224" fill="#111827"/>
+  <rect x="20" y="20" width="984" height="984" rx="204" fill="none" stroke="#2B3A50" stroke-width="16"/>
+
+  <path d="M318 292 512 218 706 292" fill="none" stroke="#56CCFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="318" cy="292" r="34" fill="#FFB86B"/>
+  <circle cx="512" cy="218" r="34" fill="#56CCFF"/>
+  <circle cx="706" cy="292" r="34" fill="#5BE7C4"/>
+
+  <circle cx="492" cy="504" r="232" fill="#111827" stroke="#F4F8FF" stroke-width="72"/>
+  <path d="m603 652 154 154" fill="none" stroke="#5BE7C4" stroke-width="72" stroke-linecap="round"/>
+  <circle cx="492" cy="504" r="25" fill="#FFB86B"/>
+</svg>

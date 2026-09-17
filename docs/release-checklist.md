@@ -1,8 +1,7 @@
 # Qask release checklist
 
-Qask is currently released as source only. Complete this checklist before
-publishing a source release or merging release-preparation changes into
-`main`.
+Qask is released as source plus an unsigned macOS arm64 preview DMG. Complete
+this checklist before publishing a source release or binary release.
 
 ## Repository and security
 
@@ -24,6 +23,8 @@ npm audit --omit=dev
 npm run check:public-source
 npm run test:layout-ui
 npm pack --dry-run --json
+npm run package:mac
+hdiutil verify dist/Qask-1.0.0-arm64.dmg
 ```
 
 Inspect the pack output and scan the exact source archive with an approved
@@ -43,6 +44,8 @@ screenshots containing account data, or build artifacts.
 
 ## Desktop binaries
 
-Desktop binaries are not currently published or supported. Before starting a
-binary release, add platform-specific packaging, signing, notarization,
-permission-copy review, update distribution, and clean-account validation.
+The current macOS arm64 DMG is an unsigned preview artifact for evaluation.
+Gatekeeper may warn and macOS permissions must be reviewed on the target
+machine. Before calling a desktop binary production-ready, complete signing,
+notarization, permission-copy review, update distribution, and clean-account
+validation.

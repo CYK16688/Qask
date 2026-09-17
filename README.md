@@ -1,8 +1,10 @@
 # Qask
 
+<p align="center"><img src="assets/qask-logo.svg" alt="Qask logo" width="160"></p>
+
 **A private, local Electron workspace for asking the same question across multiple AI websites and comparing the answers side by side.**
 
-> **Release status:** Qask is open source under **AGPL-3.0-or-later**. It is currently a desktop prototype: no packaged binaries are published or supported.
+> **Release status:** Qask is open source under **AGPL-3.0-or-later**. An unsigned macOS arm64 preview DMG is available for evaluation; production distribution still requires signing, notarization, and clean-account validation.
 
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-8a2be2.svg)](LICENSE)
 [![Electron](https://img.shields.io/badge/Electron-44.3.0-47848f.svg)](https://www.electronjs.org/)
@@ -129,7 +131,7 @@ The project uses Electron 44.3.0 and Node's built-in test runner. See [docs/arch
 - Using automated interaction with a provider website may be restricted by that provider's terms, account policies, or anti-bot controls; review the provider's current terms before use.
 - Qask does not upload attachments to provider websites, verify uploads, or prove that a model read an attachment.
 - macOS microphone and screen-capture permissions may be required for recording and screenshots.
-- This source prototype still needs packaging, signing, notarization, and clean-account validation before a production desktop release.
+- The published macOS arm64 preview is unsigned. Production distribution still requires signing, notarization, permission-copy review, and clean-account validation.
 
 ## Documentation
 

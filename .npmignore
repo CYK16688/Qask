@@ -5,6 +5,8 @@
 !preload.js
 !src/
 !src/**
+!assets/
+!assets/**
 !docs/
 !docs/**
 !scripts/
