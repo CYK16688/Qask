@@ -142,6 +142,7 @@ test('public documentation and package metadata state the AGPL source and commer
   const notice = readProjectFile('NOTICE');
   const license = readProjectFile('LICENSE');
   const architecture = readProjectFile('docs/architecture.md');
+  const repositoryBoundaries = readProjectFile('docs/repository-boundaries.md');
   const packageJson = JSON.parse(readProjectFile('package.json'));
   const packageLock = JSON.parse(readProjectFile('package-lock.json'));
 
@@ -175,6 +176,12 @@ test('public documentation and package metadata state the AGPL source and commer
   assert.match(notice, /node-screenshots.*transitive runtime dependency/s);
   assert.match(readProjectFile('docs/release-checklist.md'), /Private Vulnerability Reporting/);
   assert.match(readProjectFile('docs/release-checklist.md'), /npm run check:public-source/);
+  assert.match(repositoryBoundaries, /Track in Git/);
+  assert.match(repositoryBoundaries, /Ignore locally/);
+  assert.match(repositoryBoundaries, /Distribution boundaries/);
+  assert.match(repositoryBoundaries, /`dist\/`/);
+  assert.match(repositoryBoundaries, /GitHub Release/);
+  assert.match(repositoryBoundaries, /`package-lock\.json`/);
   assert.match(license, /GNU AFFERO GENERAL PUBLIC LICENSE/);
   assert.match(license, /Version 3, 19 November 2007/);
   assert.equal(packageJson.author, 'iCreator');
@@ -435,14 +442,16 @@ test('screenshot dependency logging is patched out and the host supplies a no-op
   assert.match(patch, /-\s*console\.log\.apply\(console, __spreadArray/);
 });
 
-test('macOS packaging uses the Qask icon and produces an arm64 DMG without signing claims', () => {
+test('macOS packaging uses the Qask icon and enables Developer ID signing', () => {
   const packageJson = JSON.parse(readProjectFile('package.json'));
 
   assert.equal(packageJson.scripts['package:mac'], 'electron-builder --mac dmg --arm64 --publish never');
   assert.equal(packageJson.build.appId, 'com.icreator.qask');
   assert.equal(packageJson.build.productName, 'Qask');
   assert.equal(packageJson.build.mac.icon, 'assets/qask.icns');
-  assert.equal(packageJson.build.mac.identity, null);
+  assert.equal(packageJson.build.mac.hardenedRuntime, true);
+  assert.equal(packageJson.build.mac.gatekeeperAssess, false);
+  assert.equal(Object.hasOwn(packageJson.build.mac, 'identity'), false);
   assert.deepEqual(packageJson.build.mac.target, [{
     target: 'dmg',
     arch: ['arm64'],

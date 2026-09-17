@@ -76,7 +76,8 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "assets/qask.icns",
-      "identity": null,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
       "target": [
         {
           "target": "dmg",
