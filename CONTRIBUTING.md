@@ -9,9 +9,12 @@ storage, answer scraping, or automatic export.
 ## License and contributions
 
 Qask is licensed under AGPL-3.0-or-later. By submitting a contribution, you
-confirm that you have the right to contribute it under that license and agree
-that the contribution is licensed under AGPL-3.0-or-later. Do not submit code,
-assets, credentials, or material whose redistribution rights are unclear.
+confirm that you have the right to contribute it and license the contribution
+under AGPL-3.0-or-later. Qask does not currently use a CLA or acquire an
+automatic copyright assignment; maintainers cannot promise to relicense a
+contribution under a separate commercial license without a separate agreement
+with its copyright holder. Do not submit code, assets, credentials, or
+material whose redistribution rights are unclear.
 
 Commercial exceptions are handled separately; see
 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md). Do not place commercial terms,
@@ -43,6 +46,7 @@ than a public issue. See [SECURITY.md](SECURITY.md).
 npm test
 npm audit --omit=dev
 npm run test:layout-ui
+npm run check:public-source
 npm pack --dry-run --json
 ```
 

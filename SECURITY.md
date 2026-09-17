@@ -7,17 +7,15 @@ releases are not yet published or supported.
 
 ## Reporting a vulnerability
 
-For the public Qask repository, use GitHub's **Private vulnerability reporting**
-flow: open the repository's **Security → Advisories** page and select
-**Report a vulnerability**. This route is available only after the repository
-owner enables GitHub Private Vulnerability Reporting.
+For the public Qask repository, use GitHub's [Report a vulnerability form](https://github.com/cyk16688/Qask/security/advisories/new).
+This is the only supported vulnerability-reporting channel. The repository
+owner must enable GitHub Private Vulnerability Reporting before publishing a
+public release; if the private form is unavailable, do not disclose
+credentials, cookies, private repository information, personal data, or
+exploit details through a public issue, and do not publish the release until
+the private channel is restored.
 
-If that button is unavailable, do not disclose credentials, cookies, private
-repository information, personal data, or exploit details through a public
-issue. Wait for the maintainer to restore the private reporting route; do not
-infer an alternate contact route from this source package.
-
-Once a private route is published, a report should include:
+When submitting a private report, include:
 
 - an impact summary;
 - minimal reproduction steps;
@@ -46,7 +44,7 @@ Before publishing source, an archive, or a desktop binary:
 1. run the full tests and runtime dependency audit;
 2. inspect the exact publish/archive file list and scan it for credentials;
 3. confirm license ownership and third-party notices;
-4. verify no local profiles, screenshots, build artifacts, or test fixtures are
-   included unintentionally; and
+4. verify no local profiles, unlicensed screenshots, build artifacts, or test
+   fixtures are included unintentionally; and
 5. for macOS binaries, complete signing, notarization, permission-copy review,
    and clean-account validation.

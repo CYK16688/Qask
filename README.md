@@ -2,7 +2,7 @@
 
 **A private, local Electron workspace for asking the same question across multiple AI websites and comparing the answers side by side.**
 
-> **Source status:** Qask is source-available under **AGPL-3.0-or-later**. It is currently a desktop prototype: no packaged binaries are published or supported.
+> **Release status:** Qask is open source under **AGPL-3.0-or-later**. It is currently a desktop prototype: no packaged binaries are published or supported.
 
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-8a2be2.svg)](LICENSE)
 [![Electron](https://img.shields.io/badge/Electron-44.3.0-47848f.svg)](https://www.electronjs.org/)
@@ -38,7 +38,7 @@ Qask is **not** a multi-provider API client. It does not use model APIs, extract
 | ![Three-panel comparison workspace.](docs/images/layout-triple.png) | ![Four-panel 2 by 2 comparison workspace.](docs/images/layout-quad.png) |
 | Keep three sources visible at once. | Use a 2×2 grid for four sources. |
 
-The screenshots were captured in a fresh, unauthenticated Qask profile after each active third-party page reached `document.readyState === "complete"`, followed by an additional four-second settle period. They contain no account identity, user prompt, response, credential, or conversation history. The visible pages are public landing, sign-in, or verification states—some services may show an anti-bot gate—so they demonstrate loaded webviews and layout, not successful third-party message delivery or model output.
+The screenshots were captured by the Qask maintainers in a fresh, unauthenticated Qask profile after each active third-party page reached `document.readyState === "complete"`, followed by an additional four-second settle period. They contain no account identity, user prompt, response, credential, or conversation history. The visible pages are public landing, sign-in, or verification states—some services may show an anti-bot gate—so they demonstrate loaded webviews and layout, not successful third-party message delivery or model output. Third-party UI, names, and marks remain owned by their respective providers; the screenshots are documentation-only and do not imply endorsement.
 
 ## Features
 
@@ -78,7 +78,7 @@ Read the complete [privacy and local-data boundary](PRIVACY.md) and [security po
 ### Install and run
 
 ```bash
-git clone https://github.com/aiwalllet/Qask.git
+git clone https://github.com/cyk16688/Qask.git
 cd Qask
 npm ci
 npm start
@@ -95,7 +95,7 @@ npm ci
 
 Do not modify `node_modules/electron/path.txt` or copy Electron binaries between platforms.
 
-`npm pack` creates a **最小运行时包**. It **不包含 `package-lock.json`、测试套件或 GUI smoke 脚本** (does not include `package-lock.json`, the test suite, or GUI smoke scripts), so it is not a standalone source distribution for development verification.
+This repository is the supported source distribution. npm publishing is intentionally disabled (`private: true`); `npm pack` creates a **最小运行时包** for inspection only. It **不包含 `package-lock.json`、测试套件或 GUI smoke 脚本** (does not include `package-lock.json`, the test suite, or GUI smoke scripts), so it is not a standalone source distribution for development verification.
 
 ## How it works
 
@@ -126,6 +126,7 @@ The project uses Electron 44.3.0 and Node's built-in test runner. See [docs/arch
 - Website adapters depend on third-party DOM structures, login state, bot checks, and service availability; a send attempt is not proof that a website accepted the message.
 - Qask does not support provider APIs, streaming, answer extraction, automatic comparison, local conversation storage, or export.
 - Websites may change without notice and break their text adapters.
+- Using automated interaction with a provider website may be restricted by that provider's terms, account policies, or anti-bot controls; review the provider's current terms before use.
 - Qask does not upload attachments to provider websites, verify uploads, or prove that a model read an attachment.
 - macOS microphone and screen-capture permissions may be required for recording and screenshots.
 - This source prototype still needs packaging, signing, notarization, and clean-account validation before a production desktop release.
@@ -139,6 +140,7 @@ The project uses Electron 44.3.0 and Node's built-in test runner. See [docs/arch
 - [Contribution guide](CONTRIBUTING.md)
 - [Commercial licensing](COMMERCIAL-LICENSE.md)
 - [Notices](NOTICE)
+- [Release checklist](docs/release-checklist.md)
 
 ## Contributing
 
@@ -146,7 +148,7 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [S
 
 ## Security
 
-Report vulnerabilities through GitHub's **Private vulnerability reporting** flow in the repository's **Security → Advisories** area. If that flow is unavailable, do not place secrets, cookies, private repository information, personal data, or exploit details in a public issue. See [SECURITY.md](SECURITY.md).
+Report vulnerabilities through [GitHub Private vulnerability reporting](https://github.com/cyk16688/Qask/security/advisories/new). Do not place secrets, cookies, private repository information, personal data, or exploit details in a public issue. See [SECURITY.md](SECURITY.md).
 
 ## License
 
@@ -177,7 +179,7 @@ Qask 是一个本地 Electron 桌面工作区：把你选择的 AI 官方网页�
 ### 安装与启动
 
 ```bash
-git clone https://github.com/aiwalllet/Qask.git
+git clone https://github.com/cyk16688/Qask.git
 cd Qask
 npm ci
 npm start

@@ -29,3 +29,10 @@ The currently resolved direct runtime components include:
 
 This notice is not a substitute for the complete notices required in a binary
 release.
+
+## Documentation screenshots
+
+The screenshots under `docs/images/` were captured by Qask maintainers for
+documentation in an unauthenticated profile. They may show third-party website
+interfaces, names, or marks. Those third-party rights remain with their
+respective owners, and the screenshots do not imply affiliation or endorsement.

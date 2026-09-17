@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "description": "A local Electron workspace for comparing responses from multiple AI websites.",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cyk16688/Qask.git"
+  },
+  "homepage": "https://github.com/cyk16688/Qask#readme",
+  "bugs": {
+    "url": "https://github.com/cyk16688/Qask/issues"
+  },
   "main": "main.js",
   "files": [
     "main.js",
@@ -26,6 +34,7 @@
     "dev": "node scripts/run-electron.js",
     "test": "node --test test/**/*.test.cjs",
     "test:layout-ui": "electron scripts/layout-ui-smoke.js",
+    "check:public-source": "node scripts/verify-public-source.cjs",
     "postinstall": "patch-package"
   },
   "keywords": [
