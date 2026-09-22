@@ -108,6 +108,8 @@ permission-copy review and clean-account validation.
   Do not claim the DMG itself is code-signed — it is not.
 - Link the tagged source (the GitHub source archive for that tag is the
   corresponding source for the binary) and state the license.
-- Keep the pre-release flag until permission-copy review and clean-account
-  validation are complete; clear it only when the build can be described as
-  production-supported.
+- Keep the pre-release flag while permission-copy review and clean-account
+  validation are outstanding. If the flag is cleared before those checks
+  complete — so the build appears as the project's latest release — the release
+  notes and `README.md` must state which checks are outstanding, and the build
+  must not be described as production-supported.
