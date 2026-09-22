@@ -9,8 +9,10 @@ permissions:
   contents: read
 
 concurrency:
+  # Superseded pull-request runs are cancelled; pushes to main are never
+  # cancelled so every commit on main keeps a complete CI result.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
