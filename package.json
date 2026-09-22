@@ -1,7 +1,7 @@
 {
   "name": "qask",
   "version": "1.0.1",
-  "description": "Qask: a local-first Electron desktop workspace for asking one question across multiple AI websites (ChatGPT, Gemini, Claude, Copilot, DeepSeek, Kimi, 豆包) and comparing the answers side by side.",
+  "description": "Qask: multi-AI comparison for macOS. Send one question to ChatGPT, Gemini, Doubao (豆包), Claude, Copilot, DeepSeek, and Kimi at once and compare the answers side by side in their own official web UIs. Local-first Electron desktop app, no API keys. AGPL-3.0-or-later.",
   "private": true,
   "repository": {
     "type": "git",

@@ -2,7 +2,7 @@
 
 <p align="center"><img src="assets/qask-logo.svg" alt="Qask logo" width="160"></p>
 
-**Qask is a local-first Electron desktop workspace for asking one question across multiple AI websites — ChatGPT, Gemini, 豆包, Claude, Copilot, DeepSeek, and Kimi — and comparing the answers side by side in their own web UIs.**
+**Qask is a local-first macOS desktop app for multi-AI comparison: ask one question once and send it to ChatGPT, Gemini, Doubao (豆包), Claude, Copilot, DeepSeek, and Kimi side by side — every answer stays in its own official web UI, and no API key is required.**
 
 [![CI](https://github.com/CYK16688/Qask/actions/workflows/ci.yml/badge.svg)](https://github.com/CYK16688/Qask/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CYK16688/Qask?include_prereleases&label=release)](https://github.com/CYK16688/Qask/releases)
@@ -10,7 +10,7 @@
 [![Electron](https://img.shields.io/badge/Electron-44.3.0-47848f.svg)](https://www.electronjs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg)](https://nodejs.org/)
 
-> **Release status:** Qask is open source under **AGPL-3.0-or-later**. A signed and notarized macOS arm64 preview DMG is attached to the [latest release](https://github.com/CYK16688/Qask/releases) for evaluation; production distribution still requires clean-account validation.
+> **Release status:** Qask is open source under **AGPL-3.0-or-later**. A signed, notarized, and stapled macOS arm64 (Apple Silicon) preview DMG is attached to the [latest release](https://github.com/CYK16688/Qask/releases) for evaluation; production distribution still requires clean-account validation.
 
 [English](#overview) · [中文](#中文说明)
 
@@ -18,7 +18,7 @@
 
 ## Overview
 
-Qask is a multi-AI comparison workspace for macOS. It puts the official AI websites of your choice in one desktop window — side by side — and sends the same question to the active panels. Sign in to each website yourself (Qask never asks for an API key), select a one-, two-, three-, or four-panel layout, and compare the models' answers directly in their original web UIs: ChatGPT, Gemini, 豆包, Claude, Copilot, DeepSeek, and Kimi, plus any custom HTTPS website you add.
+Qask is a multi-AI comparison workspace for macOS. It puts the official AI websites of your choice in one desktop window — side by side — and sends the same question to the active panels. Sign in to each website yourself (Qask never asks for an API key), select a one-, two-, three-, or four-panel layout, and compare the models' answers directly in their original web UIs: ChatGPT, Gemini, Doubao (豆包), Claude, Copilot, DeepSeek, and Kimi (Moonshot AI), plus any custom HTTPS website you add.
 
 Qask is **not** a multi-provider API client. It does not use model APIs, extract answers, store conversation history, or create a combined answer view.
 
@@ -49,7 +49,7 @@ The screenshots were captured by the Qask maintainers in a fresh, unauthenticate
 ### Workspace and websites
 
 - One, two, three, and four panel layouts; cycle layouts with `Alt + ←` / `Alt + →`.
-- Built-in website entries for ChatGPT, Gemini, 豆包, Claude, Copilot, DeepSeek, and Kimi.
+- Built-in website entries for ChatGPT, Gemini, Doubao (豆包), Claude, Copilot, DeepSeek, and Kimi (Moonshot AI / 月之暗面).
 - Drag to reorder websites; the first *N* sites populate an *N*-panel layout without unnecessarily reloading existing pages.
 - Add a custom **HTTPS** website. Custom sites are fill-only by default; automatic send requires explicit consent for that exact origin.
 - A separate persistent Electron session partition per website, so website logins are isolated and typically survive an app restart on the same machine.
@@ -188,12 +188,12 @@ Qask is not affiliated with, sponsored by, or endorsed by OpenAI, Google, Anthro
 
 ## 中文说明
 
-Qask 是一个本地 Electron 桌面工作区：把你选择的 AI 官方网页并排放在一个窗口中，通过统一输入框尝试同时发送同一问题，再直接在各网站原生界面中人工比较回答。
+Qask 是一个本地运行的 macOS / Electron 桌面工具，专注**多 AI 对比与多模型同屏提问**：把你选择的 AI 官方网页并排放在一个窗口中，通过统一输入框尝试同时发送同一问题，再直接在各网站原生界面中人工比较回答，无需任何 API Key。
 
 ### 主要能力
 
 - 支持单、双、三、四面板布局，`Alt + ← / →` 可快速切换。
-- 内置 ChatGPT、Gemini、豆包、Claude、Copilot、DeepSeek、Kimi 网页入口；可拖动排序，当前布局使用前 *N* 个网站。
+- 内置 ChatGPT、Gemini、豆包（Doubao）、Claude、Copilot、DeepSeek、Kimi 网页入口；可拖动排序，当前布局使用前 *N* 个网站。
 - 可添加**自定义 HTTPS 网页模型**；默认只填入文字，只有对精确 origin 明确授权后才会尝试自动发送。
 - 每个网站拥有独立持久化 Electron 会话分区，登录状态相互隔离，通常可在本机重启后保留。
 - 统一输入框可向活动面板并发尝试填入/发送文本；`Enter` 发送，`Shift + Enter` 换行。
