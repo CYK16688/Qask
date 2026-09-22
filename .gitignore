@@ -2,7 +2,9 @@ node_modules/
 .worktrees/
 dist/
 out/
-build/
+build/*
+!build/entitlements.mac.plist
+!build/entitlements.mac.inherit.plist
 release/
 coverage/
 artifacts/

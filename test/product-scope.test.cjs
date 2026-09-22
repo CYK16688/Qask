@@ -453,12 +453,134 @@ test('macOS packaging uses the Qask icon and enables Developer ID signing', () =
   assert.equal(packageJson.build.mac.hardenedRuntime, true);
   assert.equal(packageJson.build.mac.gatekeeperAssess, false);
   assert.equal(Object.hasOwn(packageJson.build.mac, 'identity'), false);
+  // The packaged Info.plist must carry an accurate microphone purpose string:
+  // electron-builder's templated text is replaced through extendInfo, and the
+  // descriptions for hardware Qask never uses are removed by the pack hook.
+  assert.equal(
+    packageJson.build.mac.extendInfo.NSMicrophoneUsageDescription,
+    'Qask uses the microphone only when you start a local audio recording.',
+  );
+  assert.deepEqual(Object.keys(packageJson.build.mac.extendInfo).sort(), [
+    'NSHumanReadableCopyright',
+    'NSMicrophoneUsageDescription',
+  ]);
+  assert.equal(packageJson.build.afterPack, 'scripts/after-pack-plist.cjs');
+  assert.equal(packageJson.build.mac.entitlements, 'build/entitlements.mac.plist');
+  assert.equal(packageJson.build.mac.entitlementsInherit, 'build/entitlements.mac.inherit.plist');
   assert.deepEqual(packageJson.build.mac.target, [{
     target: 'dmg',
     arch: ['arm64'],
   }]);
   assert.ok(fs.statSync(path.join(root, 'assets', 'qask-logo.svg')).isFile());
   assert.ok(fs.statSync(path.join(root, 'assets', 'qask.icns')).isFile());
+});
+
+test('hardened-runtime entitlements grant microphone access only', () => {
+  // Parsed as XML rather than through plutil so the check also runs on the
+  // Linux CI runner, where the macOS release run cannot execute.
+  const readEntitlements = (relativePath) => {
+    const source = readProjectFile(relativePath);
+    const entries = {};
+    const pattern = /<key>([^<]+)<\/key>\s*<(true|false)\/>/g;
+    let match = pattern.exec(source);
+    while (match !== null) {
+      entries[match[1]] = match[2] === 'true';
+      match = pattern.exec(source);
+    }
+    return entries;
+  };
+
+  for (const relativePath of ['build/entitlements.mac.plist', 'build/entitlements.mac.inherit.plist']) {
+    const entitlements = readEntitlements(relativePath);
+    // The entitlements are build inputs referenced from package.json, so they
+    // must stay tracked even though build/ is an ignored output directory.
+    assert.match(readProjectFile('.gitignore'), new RegExp(`^!${relativePath.replace(/[.]/g, '\\.')}$`, 'm'));
+    // Under the hardened runtime the microphone entitlement is required for
+    // audio capture; without it the recording feature fails in a signed build.
+    assert.equal(entitlements['com.apple.security.device.audio-input'], true, `${relativePath} must grant audio input`);
+    assert.equal(entitlements['com.apple.security.cs.allow-jit'], true, `${relativePath} must allow JIT`);
+    assert.equal(
+      entitlements['com.apple.security.cs.allow-unsigned-executable-memory'],
+      true,
+      `${relativePath} must allow unsigned executable memory`,
+    );
+    // No camera, Bluetooth, location, or sandbox escape entitlements.
+    const granted = Object.keys(entitlements).filter((key) => key !== 'com.apple.security.device.audio-input');
+    assert.deepEqual(
+      granted.sort(),
+      [
+        'com.apple.security.cs.allow-jit',
+        'com.apple.security.cs.allow-unsigned-executable-memory',
+        'com.apple.security.cs.disable-library-validation',
+      ],
+      `${relativePath} grants unexpected entitlements`,
+    );
+  }
+});
+
+test('the pack hook removes privacy descriptions for hardware Qask never uses', async () => {
+  const afterPackModule = require(path.join(root, 'scripts', 'after-pack-plist.cjs'));
+  const afterPack = afterPackModule.default || afterPackModule;
+
+  assert.deepEqual(afterPackModule.REQUIRED_PRIVACY_KEYS, ['NSMicrophoneUsageDescription']);
+  assert.deepEqual(afterPackModule.UNUSED_PRIVACY_KEYS, [
+    'NSCameraUsageDescription',
+    'NSBluetoothAlwaysUsageDescription',
+    'NSBluetoothPeripheralUsageDescription',
+    'NSAudioCaptureUsageDescription',
+  ]);
+
+  if (process.platform !== 'darwin') {
+    // The hook shells out to plutil; the macOS release run exercises it.
+    return;
+  }
+
+  const { execFileSync } = require('node:child_process');
+  const temporaryRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'qask-plist-'));
+  const appDir = path.join(temporaryRoot, 'mac-arm64', 'Qask.app', 'Contents');
+  fs.mkdirSync(appDir, { recursive: true });
+  const plistPath = path.join(appDir, 'Info.plist');
+  const generate = (contents) => {
+    fs.writeFileSync(path.join(temporaryRoot, 'source.json'), JSON.stringify(contents));
+    execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', plistPath, path.join(temporaryRoot, 'source.json')]);
+  };
+  const readKeys = () => {
+    const output = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' });
+    return Object.keys(JSON.parse(output));
+  };
+  const context = {
+    electronPlatformName: 'darwin',
+    appOutDir: path.join(temporaryRoot, 'mac-arm64'),
+    packager: { appInfo: { productFilename: 'Qask' } },
+  };
+
+  try {
+    generate({
+      CFBundleIdentifier: 'com.icreator.qask',
+      NSMicrophoneUsageDescription: 'Qask uses the microphone only when you start a local audio recording.',
+      NSCameraUsageDescription: 'This app needs access to the camera',
+      NSBluetoothAlwaysUsageDescription: 'This app needs access to Bluetooth',
+      NSBluetoothPeripheralUsageDescription: 'This app needs access to Bluetooth',
+      NSAudioCaptureUsageDescription: 'This app needs access to audio capture',
+    });
+
+    await afterPack(context);
+
+    const keys = readKeys();
+    assert.deepEqual(keys.sort(), ['CFBundleIdentifier', 'NSMicrophoneUsageDescription']);
+    assert.equal(
+      JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath], { encoding: 'utf8' }))
+        .NSMicrophoneUsageDescription,
+      'Qask uses the microphone only when you start a local audio recording.',
+    );
+
+    // A build whose microphone purpose string went missing must fail loudly
+    // rather than ship an app that prompts without an explanation.
+    generate({ CFBundleIdentifier: 'com.icreator.qask' });
+    await assert.rejects(() => afterPack(context), /no NSMicrophoneUsageDescription/);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test('macOS notarization uses a keychain profile and never accepts a password argument', () => {

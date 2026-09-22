@@ -84,7 +84,7 @@ Read the complete [privacy and local-data boundary](PRIVACY.md) and [security po
 The signed and notarized Apple Silicon preview is attached to the [latest release](https://github.com/CYK16688/Qask/releases). Verify the downloaded DMG before opening it:
 
 ```bash
-shasum -a 256 -c Qask-1.0.1-arm64.dmg.sha256
+shasum -a 256 -c Qask-1.0.2-arm64.dmg.sha256
 ```
 
 The DMG is signed, notarized, and stapled; the app inside is signed with a Developer ID Application certificate and notarized by Apple. This is an evaluation preview, not a production-supported build — review macOS permission prompts and validate with a clean account before relying on it.

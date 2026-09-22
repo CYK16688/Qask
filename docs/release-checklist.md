@@ -99,6 +99,25 @@ and notarized before being described as production-ready. Gatekeeper behavior
 and macOS permissions must still be reviewed on the target machine, including
 permission-copy review and clean-account validation.
 
+The packaged bundle must declare only the hardware the app uses:
+
+- `NSMicrophoneUsageDescription` carries the project's own copy through
+  `build.mac.extendInfo`; electron-builder's templated text is never shipped.
+- Camera, Bluetooth, and audio-capture descriptions are removed after packing by
+  `build.afterPack` (`scripts/after-pack-plist.cjs`), which fails the build when
+  the microphone purpose string is missing or an unused description survives.
+- `build/entitlements.mac.plist` and `build/entitlements.mac.inherit.plist` keep
+  the Electron defaults and add `com.apple.security.device.audio-input`; without
+  that entitlement the hardened runtime blocks microphone capture, so recording
+  works on an unsigned test build and fails in the notarized one.
+
+Verify both facts on the built app, not on the source tree:
+
+```sh
+plutil -p dist/mac-arm64/Qask.app/Contents/Info.plist | grep -i usagedescription
+codesign -d --entitlements :- dist/mac-arm64/Qask.app
+```
+
 ## Release publication
 
 - Tag the exact verified commit, and upload only the artifacts that passed the
