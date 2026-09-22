@@ -7,7 +7,7 @@ releases are not yet published or supported.
 
 ## Reporting a vulnerability
 
-For the public Qask repository, use GitHub's [Report a vulnerability form](https://github.com/cyk16688/Qask/security/advisories/new).
+For the public Qask repository, use GitHub's [Report a vulnerability form](https://github.com/CYK16688/Qask/security/advisories/new).
 This is the only supported vulnerability-reporting channel. The repository
 owner must enable GitHub Private Vulnerability Reporting before publishing a
 public release; if the private form is unavailable, do not disclose

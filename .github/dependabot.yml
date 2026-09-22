@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  # GitHub Actions are updated weekly; these changes are small and verifiable by CI.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+
+  # Runtime and development versions are pinned to audited, tested releases
+  # (see test/product-scope.test.cjs). Routine version bumps are therefore
+  # disabled; security updates still open pull requests when an advisory affects
+  # a pinned dependency, and CI decides whether the pinned version can move.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - security

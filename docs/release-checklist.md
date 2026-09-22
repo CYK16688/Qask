@@ -5,12 +5,18 @@ publishing a source release or binary release.
 
 ## Repository and security
 
-- Confirm the canonical repository is `https://github.com/cyk16688/Qask`.
+- Confirm the canonical repository is `https://github.com/CYK16688/Qask` (the account
+  login is `CYK16688`; use that exact casing in new links and metadata).
 - Confirm the release commit is on `main` and the working tree contains no
   untracked local worktrees, profiles, credentials, or build output.
+- Confirm CI on the release commit is green, including the `layout-ui` job.
 - Enable GitHub Private Vulnerability Reporting in the repository settings.
-- Open the [private vulnerability report form](https://github.com/cyk16688/Qask/security/advisories/new)
+- Open the [private vulnerability report form](https://github.com/CYK16688/Qask/security/advisories/new)
   while signed out or with a test account and confirm it is the private form.
+- Confirm the repository About description and topics still describe Qask
+  accurately, and that [Discussions](https://github.com/CYK16688/Qask/discussions)
+  is the published contact channel in `README.md`, `COMMERCIAL-LICENSE.md`, and
+  `.github/CODE_OF_CONDUCT.md`.
 
 ## Source and dependency checks
 
@@ -24,7 +30,7 @@ npm run check:public-source
 npm run test:layout-ui
 npm pack --dry-run --json
 npm run package:mac
-hdiutil verify dist/Qask-1.0.0-arm64.dmg
+hdiutil verify "dist/Qask-$(node -p "require('./package.json').version")-arm64.dmg"
 ```
 
 Inspect the pack output and scan the exact source archive with an approved
@@ -41,6 +47,15 @@ screenshots containing account data, or build artifacts.
   do not imply endorsement.
 - For a desktop binary, generate complete dependency notices for the exact
   lockfile and target platform before distribution.
+- Confirm the packaged app contains the AGPL license text and the notices.
+  `package.json` ships `LICENSE`, `NOTICE`, and `PRIVACY.md` into the app bundle
+  through `build.extraResources`; verify the built artifact:
+
+  ```bash
+  hdiutil attach -nobrowse -readonly dist/Qask-<version>-arm64.dmg
+  ls -l /Volumes/Qask/Qask.app/Contents/Resources/{LICENSE,NOTICE,PRIVACY.md}
+  hdiutil detach /Volumes/Qask
+  ```
 
 ## macOS notarization
 
@@ -83,3 +98,16 @@ The macOS arm64 DMG must be signed with a Developer ID Application certificate
 and notarized before being described as production-ready. Gatekeeper behavior
 and macOS permissions must still be reviewed on the target machine, including
 permission-copy review and clean-account validation.
+
+## Release publication
+
+- Tag the exact verified commit, and upload only the artifacts that passed the
+  checks above plus the `.sha256` file.
+- Describe signing precisely: the app inside the DMG is signed with a Developer
+  ID Application certificate and notarized; the DMG carries the stapled ticket.
+  Do not claim the DMG itself is code-signed — it is not.
+- Link the tagged source (the GitHub source archive for that tag is the
+  corresponding source for the binary) and state the license.
+- Keep the pre-release flag until permission-copy review and clean-account
+  validation are complete; clear it only when the build can be described as
+  production-supported.

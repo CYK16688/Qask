@@ -7,12 +7,13 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const expectedRepository = 'git+https://github.com/cyk16688/Qask.git';
+const canonicalRepositoryUrl = 'https://github.com/CYK16688/Qask';
+const expectedRepository = `git+${canonicalRepositoryUrl}.git`;
 
 assert.equal(packageJson.private, true, 'source package must remain private to npm');
 assert.equal(packageJson.repository?.url, expectedRepository, 'repository URL is not canonical');
-assert.equal(packageJson.homepage, 'https://github.com/cyk16688/Qask#readme', 'homepage is not canonical');
-assert.equal(packageJson.bugs?.url, 'https://github.com/cyk16688/Qask/issues', 'issues URL is not canonical');
+assert.equal(packageJson.homepage, `${canonicalRepositoryUrl}#readme`, 'homepage is not canonical');
+assert.equal(packageJson.bugs?.url, `${canonicalRepositoryUrl}/issues`, 'issues URL is not canonical');
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 let packOutput;

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -42,5 +46,19 @@ jobs:
         run: npm ci
       - name: Install virtual display
         run: sudo apt-get update && sudo apt-get install --yes xvfb
+      - name: Install the Electron binary for this platform
+        run: node node_modules/electron/install.js
+      - name: Configure the Linux sandbox helper
+        run: |
+          # Chromium requires its setuid sandbox helper to be owned by root with
+          # mode 4755. GitHub's Linux runners ship the extracted Electron binary
+          # without that ownership, so the browser aborts before the shell loads.
+          # This changes only the runner's copy under node_modules; the shipped
+          # app keeps its own hardened runtime and sandbox settings.
+          sandbox=node_modules/electron/dist/chrome-sandbox
+          test -f "$sandbox"
+          sudo chown root:root "$sandbox"
+          sudo chmod 4755 "$sandbox"
+          ls -l "$sandbox"
       - name: Run Electron layout smoke test
         run: xvfb-run --auto-servernum --server-args='-screen 0 1600x900x24' npm run test:layout-ui

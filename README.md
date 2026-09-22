@@ -2,13 +2,15 @@
 
 <p align="center"><img src="assets/qask-logo.svg" alt="Qask logo" width="160"></p>
 
-**A private, local Electron workspace for asking the same question across multiple AI websites and comparing the answers side by side.**
+**Qask is a local-first Electron desktop workspace for asking one question across multiple AI websites — ChatGPT, Gemini, 豆包, Claude, Copilot, DeepSeek, and Kimi — and comparing the answers side by side in their own web UIs.**
 
-> **Release status:** Qask is open source under **AGPL-3.0-or-later**. A signed and notarized macOS arm64 preview DMG is available for evaluation; production distribution still requires clean-account validation.
-
+[![CI](https://github.com/CYK16688/Qask/actions/workflows/ci.yml/badge.svg)](https://github.com/CYK16688/Qask/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/CYK16688/Qask?include_prereleases&label=release)](https://github.com/CYK16688/Qask/releases)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-8a2be2.svg)](LICENSE)
 [![Electron](https://img.shields.io/badge/Electron-44.3.0-47848f.svg)](https://www.electronjs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12.0-339933.svg)](https://nodejs.org/)
+
+> **Release status:** Qask is open source under **AGPL-3.0-or-later**. A signed and notarized macOS arm64 preview DMG is attached to the [latest release](https://github.com/CYK16688/Qask/releases) for evaluation; production distribution still requires clean-account validation.
 
 [English](#overview) · [中文](#中文说明)
 
@@ -16,7 +18,7 @@
 
 ## Overview
 
-Qask puts the official websites you choose in one desktop workspace. Sign in to each website yourself, select a one-, two-, three-, or four-panel layout, and send the same text to the active panels. Compare the responses directly in their original web UIs.
+Qask is a multi-AI comparison workspace for macOS. It puts the official AI websites of your choice in one desktop window — side by side — and sends the same question to the active panels. Sign in to each website yourself (Qask never asks for an API key), select a one-, two-, three-, or four-panel layout, and compare the models' answers directly in their original web UIs: ChatGPT, Gemini, 豆包, Claude, Copilot, DeepSeek, and Kimi, plus any custom HTTPS website you add.
 
 Qask is **not** a multi-provider API client. It does not use model APIs, extract answers, store conversation history, or create a combined answer view.
 
@@ -77,10 +79,20 @@ Read the complete [privacy and local-data boundary](PRIVACY.md) and [security po
 - Node.js **22.12.0 or later** and npm.
 - A **完整源码仓库 checkout** (full source checkout), including `package-lock.json` and the `test/` directory.
 
-### Install and run
+### Download the macOS preview
+
+The signed and notarized Apple Silicon preview is attached to the [latest release](https://github.com/CYK16688/Qask/releases). Verify the downloaded DMG before opening it:
 
 ```bash
-git clone https://github.com/cyk16688/Qask.git
+shasum -a 256 -c Qask-1.0.1-arm64.dmg.sha256
+```
+
+The DMG is signed, notarized, and stapled; the app inside is signed with a Developer ID Application certificate and notarized by Apple. This is an evaluation preview, not a production-supported build — review macOS permission prompts and validate with a clean account before relying on it.
+
+### Run from source
+
+```bash
+git clone https://github.com/CYK16688/Qask.git
 cd Qask
 npm ci
 npm start
@@ -140,6 +152,7 @@ The project uses Electron 44.3.0 and Node's built-in test runner. See [docs/arch
 - [Privacy and local-data boundary](PRIVACY.md)
 - [Security policy](SECURITY.md)
 - [Contribution guide](CONTRIBUTING.md)
+- [Code of conduct](.github/CODE_OF_CONDUCT.md)
 - [Commercial licensing](COMMERCIAL-LICENSE.md)
 - [Notices](NOTICE)
 - [Repository and distribution boundaries](docs/repository-boundaries.md)
@@ -149,15 +162,23 @@ The project uses Electron 44.3.0 and Node's built-in test runner. See [docs/arch
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) first. Do not include credentials, browser profiles, local data, screenshots containing private content, or exploit details in public issues or pull requests.
 
+## Questions, licensing, and conduct
+
+- **Usage questions, commercial-licensing questions, and code-of-conduct reports:** use [GitHub Discussions](https://github.com/CYK16688/Qask/discussions). Public threads are world-readable — never post contracts, customer data, credentials, or incident details there; ask for a private channel instead.
+- **Security vulnerabilities:** use the private reporting channel below, never a public issue.
+- **Behavior expectations:** see [CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md).
+
 ## Security
 
-Report vulnerabilities through [GitHub Private vulnerability reporting](https://github.com/cyk16688/Qask/security/advisories/new). Do not place secrets, cookies, private repository information, personal data, or exploit details in a public issue. See [SECURITY.md](SECURITY.md).
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/CYK16688/Qask/security/advisories/new). Do not place secrets, cookies, private repository information, personal data, or exploit details in a public issue. See [SECURITY.md](SECURITY.md).
 
 ## License
 
 Copyright © 2026 iCreator.
 
 Qask is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (**AGPL-3.0-or-later**). Commercial users may use Qask under the AGPL when they meet its terms; iCreator may offer separate commercial licensing for proprietary distribution or proprietary hosted modifications. See [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+
+Every tagged source release on GitHub provides the corresponding source for that build. The packaged macOS app additionally ships this license text, `NOTICE`, and `PRIVACY.md` inside `Qask.app/Contents/Resources/`.
 
 ## Trademark notice
 
@@ -182,13 +203,15 @@ Qask 是一个本地 Electron 桌面工作区：把你选择的 AI 官方网页�
 ### 安装与启动
 
 ```bash
-git clone https://github.com/cyk16688/Qask.git
+git clone https://github.com/CYK16688/Qask.git
 cd Qask
 npm ci
 npm start
 ```
 
-当前主要在 macOS 上验证，需要 Node.js 22.12.0 或更高版本。完整使用说明见 [docs/user-guide.md](docs/user-guide.md)。
+当前主要在 macOS 上验证，需要 Node.js 22.12.0 或更高版本。完整使用说明见 [docs/user-guide.md](docs/user-guide.md)。已签名并公证的 macOS arm64 预览版 DMG 见 [Releases](https://github.com/CYK16688/Qask/releases)。
+
+使用问题、商业授权咨询与行为准则事项请走 [GitHub Discussions](https://github.com/CYK16688/Qask/discussions)；公开讨论区任何人都能看到，请勿在其中粘贴合同、客户数据、凭据或事件细节。安全漏洞请使用仓库的私密漏洞报告通道。
 
 ### 隐私边界
 

@@ -1,15 +1,15 @@
 {
   "name": "qask",
-  "version": "1.0.0",
-  "description": "A local Electron workspace for comparing responses from multiple AI websites.",
+  "version": "1.0.1",
+  "description": "Qask: a local-first Electron desktop workspace for asking one question across multiple AI websites (ChatGPT, Gemini, Claude, Copilot, DeepSeek, Kimi, 豆包) and comparing the answers side by side.",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cyk16688/Qask.git"
+    "url": "git+https://github.com/CYK16688/Qask.git"
   },
-  "homepage": "https://github.com/cyk16688/Qask#readme",
+  "homepage": "https://github.com/CYK16688/Qask#readme",
   "bugs": {
-    "url": "https://github.com/cyk16688/Qask/issues"
+    "url": "https://github.com/CYK16688/Qask/issues"
   },
   "main": "main.js",
   "files": [
@@ -73,6 +73,20 @@
       "assets/qask.icns",
       "assets/qask-logo.svg",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "NOTICE",
+        "to": "NOTICE"
+      },
+      {
+        "from": "PRIVACY.md",
+        "to": "PRIVACY.md"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",

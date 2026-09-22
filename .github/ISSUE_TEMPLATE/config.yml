@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/cyk16688/Qask/security/advisories/new
+    url: https://github.com/CYK16688/Qask/security/advisories/new
     about: Do not report security vulnerabilities in public issues.
+  - name: Question, commercial licensing, or code of conduct
+    url: https://github.com/CYK16688/Qask/discussions
+    about: Ask usage questions, request commercial licensing information, or ask for a private conduct channel. Never post confidential information publicly.

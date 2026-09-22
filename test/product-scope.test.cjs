@@ -67,11 +67,11 @@ test('public source distribution has an explicit allowlist and excludes developm
   assert.equal(packageJson.private, true);
   assert.deepEqual(packageJson.repository, {
     type: 'git',
-    url: 'git+https://github.com/cyk16688/Qask.git',
+    url: 'git+https://github.com/CYK16688/Qask.git',
   });
-  assert.equal(packageJson.homepage, 'https://github.com/cyk16688/Qask#readme');
+  assert.equal(packageJson.homepage, 'https://github.com/CYK16688/Qask#readme');
   assert.deepEqual(packageJson.bugs, {
-    url: 'https://github.com/cyk16688/Qask/issues',
+    url: 'https://github.com/CYK16688/Qask/issues',
   });
   assert.deepEqual(packageJson.files, [
     'main.js',
@@ -125,7 +125,8 @@ test('public issue intake routes security reports to the private vulnerability c
   assert.match(issueConfig, /^blank_issues_enabled:\s*false$/m);
   assert.match(issueConfig, /name:\s*Security vulnerability/i);
   assert.match(issueConfig, /about:\s*Do not report security vulnerabilities in public issues\./i);
-  assert.match(issueConfig, /url:\s*https:\/\/github\.com\/cyk16688\/Qask\/security\/advisories\/new/i);
+  assert.match(issueConfig, /url:\s*https:\/\/github\.com\/CYK16688\/Qask\/security\/advisories\/new/i);
+  assert.match(issueConfig, /https:\/\/github\.com\/CYK16688\/Qask\/discussions/);
   assert.match(bugForm, /^name:\s*Bug report$/m);
   assert.match(bugForm, /^labels:\s*\["bug", "triage"\]$/m);
   assert.match(bugForm, /Do not include passwords, tokens, cookies, private data, or security details\./);
@@ -160,7 +161,7 @@ test('public documentation and package metadata state the AGPL source and commer
   assert.match(readme, /COMMERCIAL-LICENSE\.md/);
   assert.match(security, /Private vulnerability reporting/i);
   assert.match(security, /Report a vulnerability/i);
-  assert.match(security, /cyk16688\/Qask\/security\/advisories\/new/i);
+  assert.match(security, /CYK16688\/Qask\/security\/advisories\/new/i);
   assert.match(security, /must enable GitHub Private Vulnerability Reporting/i);
   assert.match(contributing, /AGPL-3\.0-or-later/);
   assert.match(contributing, /GitHub's private vulnerability reporting flow/i);
@@ -1060,4 +1061,57 @@ test('README describes the shipped HTTPS-only multimodal boundary', () => {
   assert.doesNotMatch(readme, /自定义 HTTP\/HTTPS/);
   assert.doesNotMatch(readme, /非图片文件不会上传/);
   assert.doesNotMatch(readme, /宽松安全配置/);
+});
+
+test('packaged macOS app ships the AGPL license text, notices, and privacy boundary', () => {
+  const packageJson = JSON.parse(readProjectFile('package.json'));
+  const notice = readProjectFile('NOTICE');
+
+  assert.deepEqual(packageJson.build.extraResources, [
+    { from: 'LICENSE', to: 'LICENSE' },
+    { from: 'NOTICE', to: 'NOTICE' },
+    { from: 'PRIVACY.md', to: 'PRIVACY.md' },
+  ]);
+  for (const filePath of ['LICENSE', 'NOTICE', 'PRIVACY.md']) {
+    assert.ok(fs.statSync(path.join(root, filePath)).isFile());
+  }
+  assert.match(notice, /Shipped inside the packaged macOS app/);
+  assert.match(notice, /Development-only tooling that is not shipped/);
+  assert.match(readProjectFile('docs/release-checklist.md'), /Contents\/Resources/);
+  assert.match(readProjectFile('README.md'), /Qask\.app\/Contents\/Resources/);
+});
+
+test('community files publish contact channels without inviting confidential disclosure', () => {
+  const codeOfConduct = readProjectFile('.github/CODE_OF_CONDUCT.md');
+  const pullRequestTemplate = readProjectFile('.github/PULL_REQUEST_TEMPLATE.md');
+  const dependabot = readProjectFile('.github/dependabot.yml');
+  const readme = readProjectFile('README.md');
+  const commercial = readProjectFile('COMMERCIAL-LICENSE.md');
+  const contributing = readProjectFile('CONTRIBUTING.md');
+
+  assert.match(codeOfConduct, /adapted from the \[Contributor Covenant\]/);
+  assert.match(codeOfConduct, /https:\/\/github\.com\/CYK16688\/Qask\/discussions/);
+  assert.match(codeOfConduct, /without incident details/);
+  assert.match(commercial, /https:\/\/github\.com\/CYK16688\/Qask\/discussions/);
+  assert.match(commercial, /no confidential intake path exists/);
+  assert.match(contributing, /https:\/\/github\.com\/CYK16688\/Qask\/discussions/);
+  assert.match(readme, /https:\/\/github\.com\/CYK16688\/Qask\/discussions/);
+  assert.match(pullRequestTemplate, /npm run test:layout-ui/);
+  assert.match(pullRequestTemplate, /no preload, no Node access/);
+  assert.match(dependabot, /package-ecosystem: github-actions/);
+  assert.match(dependabot, /package-ecosystem: npm/);
+  assert.match(dependabot, /open-pull-requests-limit: 0/);
+});
+
+test('the layout smoke job repairs the Linux sandbox helper instead of disabling the sandbox', () => {
+  const workflow = readProjectFile('.github/workflows/ci.yml');
+  const smoke = readProjectFile('scripts/layout-ui-smoke.js');
+
+  assert.match(workflow, /node node_modules\/electron\/install\.js/);
+  assert.match(workflow, /chrome-sandbox/);
+  assert.match(workflow, /sudo chown root:root "\$sandbox"/);
+  assert.match(workflow, /sudo chmod 4755 "\$sandbox"/);
+  assert.doesNotMatch(workflow, /--no-sandbox|ELECTRON_DISABLE_SANDBOX/);
+  assert.match(workflow, /npm run test:layout-ui/);
+  assert.doesNotMatch(smoke, /--no-sandbox/);
 });

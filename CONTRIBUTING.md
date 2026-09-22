@@ -19,7 +19,8 @@ material whose redistribution rights are unclear.
 Commercial exceptions are handled separately; see
 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md). Do not place commercial terms,
 customer information, contracts, or other confidential information in a public
-issue or pull request.
+issue, pull request, or discussion. Usage questions and commercial-licensing
+questions belong in [GitHub Discussions](https://github.com/CYK16688/Qask/discussions).
 
 For security reports, use GitHub's private vulnerability reporting flow rather
 than a public issue. See [SECURITY.md](SECURITY.md).
