@@ -1127,6 +1127,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   sendMode: "send",
   comparisonModelId: "auto",
   confirmSummary: true,
+  autoPanelZoom: true,
+  alwaysOnTop: false,
+  launchAtLogin: false,
   showStatusBar: false,
   shortcuts: Object.freeze({
     send: "enter",
@@ -1148,6 +1151,9 @@ function normalizeSettings(raw) {
       ? value.comparisonModelId.trim()
       : DEFAULT_SETTINGS.comparisonModelId,
     confirmSummary: value.confirmSummary !== false,
+    autoPanelZoom: value.autoPanelZoom !== false,
+    alwaysOnTop: value.alwaysOnTop === true,
+    launchAtLogin: value.launchAtLogin === true,
     // The transcript starts hidden: it is a diagnostic surface, not the primary
     // conversation, and it used to cover the composer on startup.
     showStatusBar: value.showStatusBar === true,
@@ -1228,6 +1234,9 @@ const settingsComparisonModel = document.getElementById("settingsComparisonModel
 const settingsConfirmSummary = document.getElementById("settingsConfirmSummary");
 const settingsShowStatus = document.getElementById("settingsShowStatus");
 const settingsTheme = document.getElementById("settingsTheme");
+const settingsAutoZoom = document.getElementById("settingsAutoZoom");
+const settingsAlwaysOnTop = document.getElementById("settingsAlwaysOnTop");
+const settingsLaunchAtLogin = document.getElementById("settingsLaunchAtLogin");
 const settingsVersion = document.getElementById("settingsVersion");
 const settingsAboutStatus = document.getElementById("settingsAboutStatus");
 const settingsOpenData = document.getElementById("settingsOpenData");
@@ -1235,6 +1244,8 @@ const settingsOpenRepo = document.getElementById("settingsOpenRepo");
 const settingsOpenReleases = document.getElementById("settingsOpenReleases");
 const panelsContainer = document.getElementById("panelsContainer");
 const broadcastForm = document.getElementById("broadcastForm");
+const composer = document.querySelector(".composer");
+const composerDropHint = document.getElementById("composerDropHint");
 const broadcastInput = document.getElementById("broadcastInput");
 const attachmentInput = document.getElementById("attachmentInput");
 const attachmentPreview = document.getElementById("attachmentPreview");
@@ -1855,6 +1866,9 @@ function openSettingsDialog() {
   settingsComparisonShortcut.value = appSettings.shortcuts.comparison;
   settingsSendMode.value = appSettings.sendMode;
   if (settingsTheme) settingsTheme.value = themeMode;
+  if (settingsAutoZoom) settingsAutoZoom.checked = appSettings.autoPanelZoom;
+  if (settingsAlwaysOnTop) settingsAlwaysOnTop.checked = appSettings.alwaysOnTop;
+  if (settingsLaunchAtLogin) settingsLaunchAtLogin.checked = appSettings.launchAtLogin;
   if (settingsConfirmSummary) settingsConfirmSummary.checked = appSettings.confirmSummary;
   if (settingsShowStatus) settingsShowStatus.checked = appSettings.showStatusBar;
   if (settingsAboutStatus) settingsAboutStatus.textContent = "";
@@ -1884,12 +1898,20 @@ function closeSettingsDialog({ restoreFocus = true } = {}) {
   }
 }
 
+function applyWindowPreferences() {
+  Promise.resolve(window.qask?.window?.setAlwaysOnTop?.(appSettings.alwaysOnTop)).catch(() => {});
+  Promise.resolve(window.qask?.app?.setLaunchAtLogin?.(appSettings.launchAtLogin)).catch(() => {});
+}
+
 function resetSettingsForm() {
   settingsSendShortcut.value = DEFAULT_SETTINGS.shortcuts.send;
   settingsLayoutShortcut.value = DEFAULT_SETTINGS.shortcuts.layout;
   settingsComparisonShortcut.value = DEFAULT_SETTINGS.shortcuts.comparison;
   settingsSendMode.value = DEFAULT_SETTINGS.sendMode;
   if (settingsTheme) settingsTheme.value = "system";
+  if (settingsAutoZoom) settingsAutoZoom.checked = DEFAULT_SETTINGS.autoPanelZoom;
+  if (settingsAlwaysOnTop) settingsAlwaysOnTop.checked = DEFAULT_SETTINGS.alwaysOnTop;
+  if (settingsLaunchAtLogin) settingsLaunchAtLogin.checked = DEFAULT_SETTINGS.launchAtLogin;
   if (settingsConfirmSummary) settingsConfirmSummary.checked = DEFAULT_SETTINGS.confirmSummary;
   settingsShowStatus.checked = DEFAULT_SETTINGS.showStatusBar;
   if (settingsComparisonModel) settingsComparisonModel.value = "auto";
@@ -2281,7 +2303,7 @@ function createPanel(index) {
     modelId: null,
     ready: false,
     loadState: PANEL_LOAD_STATES.loading,
-    zoomFactor: getAutomaticPanelZoom(currentLayout),
+    zoomFactor: appSettings.autoPanelZoom ? getAutomaticPanelZoom(currentLayout) : 1,
   };
   reloadButton.addEventListener("click", () => reloadPanel(panelState));
   return panelState;
@@ -2340,7 +2362,7 @@ function applyPanelZoom(panelState) {
 
 function syncAutomaticPanelZoom() {
   [...panels, ...parkedPanels].forEach((panelState) => {
-    panelState.zoomFactor = getAutomaticPanelZoom(currentLayout);
+    panelState.zoomFactor = appSettings.autoPanelZoom ? getAutomaticPanelZoom(currentLayout) : 1;
     applyPanelZoom(panelState);
   });
 }
@@ -3012,22 +3034,69 @@ window.addEventListener("beforeunload", () => {
   activeRecorder = null;
 });
 
-attachmentInput.addEventListener("change", async (event) => {
-  const files = Array.from(event.target.files || []);
-  if (!files.length) {
-    return;
-  }
-  const { approved, rejected } = await inspectSelectedAttachments(files);
+async function addAttachmentFiles(files, source = "local") {
+  const selected = Array.from(files || []);
+  if (!selected.length) return 0;
+  const { approved, rejected } = await inspectSelectedAttachments(selected);
   if (rejected.length) {
     logStatus(`为保护本地 GitHub 与凭据数据，已拒绝 ${rejected.length} 个敏感或不可验证附件`, "error");
   }
-  const entries = await Promise.all(approved.map((file) => addAttachment(file, 'local')));
+  const entries = await Promise.all(approved.map((file) => addAttachment(file, source)));
   const added = entries.filter(Boolean);
   if (added.length) {
     renderAttachmentPreview();
     logStatus(`已添加 ${added.length} 个附件`, "info");
   }
+  return added.length;
+}
+
+attachmentInput.addEventListener("change", async (event) => {
+  await addAttachmentFiles(event.target.files, "local");
   attachmentInput.value = "";
+});
+
+// Files can be dropped anywhere on the composer: the tray sits above the text
+// field, so the user can keep typing while the attached files stay visible.
+let composerDragDepth = 0;
+function hasDraggedFiles(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+function clearComposerDragState() {
+  composerDragDepth = 0;
+  composer?.classList.remove("is-file-drag-over");
+  composerDropHint?.setAttribute("aria-hidden", "true");
+}
+composer?.addEventListener("dragenter", (event) => {
+  if (!hasDraggedFiles(event)) return;
+  event.preventDefault();
+  composerDragDepth += 1;
+  composer.classList.add("is-file-drag-over");
+  composerDropHint?.setAttribute("aria-hidden", "false");
+});
+composer?.addEventListener("dragover", (event) => {
+  if (!hasDraggedFiles(event)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+});
+composer?.addEventListener("dragleave", (event) => {
+  if (!hasDraggedFiles(event)) return;
+  composerDragDepth = Math.max(0, composerDragDepth - 1);
+  if (composerDragDepth === 0) clearComposerDragState();
+});
+composer?.addEventListener("drop", async (event) => {
+  if (!hasDraggedFiles(event)) return;
+  event.preventDefault();
+  clearComposerDragState();
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (files.length) {
+    await addAttachmentFiles(files, "drop");
+  }
+});
+window.addEventListener("dragover", (event) => {
+  if (hasDraggedFiles(event)) event.preventDefault();
+});
+window.addEventListener("drop", (event) => {
+  if (hasDraggedFiles(event)) event.preventDefault();
 });
 
 attachmentPreview.addEventListener("click", (event) => {
@@ -4263,6 +4332,7 @@ messageQueueList?.addEventListener("keydown", (event) => {
 });
 
 setSendMode(sendModeValue);
+applyWindowPreferences();
 
 function selectLayout(layoutId) {
   const preset = normalizeLayoutPreset(layoutId);
@@ -4510,6 +4580,9 @@ if (settingsForm) {
       sendMode: settingsSendMode?.value,
       comparisonModelId: settingsComparisonModel?.value,
       confirmSummary: Boolean(settingsConfirmSummary?.checked),
+      autoPanelZoom: Boolean(settingsAutoZoom?.checked),
+      alwaysOnTop: Boolean(settingsAlwaysOnTop?.checked),
+      launchAtLogin: Boolean(settingsLaunchAtLogin?.checked),
       showStatusBar: Boolean(settingsShowStatus?.checked),
       shortcuts: {
         send: settingsSendShortcut?.value,
@@ -4521,6 +4594,8 @@ if (settingsForm) {
     setSendMode(appSettings.sendMode);
     themeMode = THEME_MODES.has(settingsTheme?.value) ? settingsTheme.value : "system";
     applyTheme({ persist: true });
+    applyWindowPreferences();
+    syncAutomaticPanelZoom();
     applyStatusBarVisibility();
     closeSettingsDialog();
     logStatus("设置已保存", "success");

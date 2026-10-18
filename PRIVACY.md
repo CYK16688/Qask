@@ -68,7 +68,7 @@ accept that provider's terms and privacy policy.
   website labels/URLs, removed default website ids (used by “restore default
   websites”), the appearance preference (system/dark/light), and local settings
   (shortcuts, default send mode, default comparison model, AI-summary
-  confirmation, status-bar visibility). Queued messages are held in memory only
+  confirmation, auto-zoom, always-on-top, launch-at-login, status-bar visibility). Queued messages are held in memory only
   and are discarded when Qask exits.
 - Provider login cookies and site storage live in the per-site persistent
   Electron partitions under Qask's userData directory. Qask does not clear them

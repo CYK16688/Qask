@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld("qask", {
     info: () => ipcRenderer.invoke("app:info"),
     openExternal: (url) => ipcRenderer.invoke("app:open-external", url),
     openUserData: () => ipcRenderer.invoke("app:open-user-data"),
+    setLaunchAtLogin: (enabled) => ipcRenderer.invoke("app:set-launch-at-login", enabled),
+  },
+  window: {
+    setAlwaysOnTop: (enabled) => ipcRenderer.invoke("window:set-always-on-top", enabled),
   },
   microphone: {
     requestAccess: () => ipcRenderer.invoke("microphone:request-access"),

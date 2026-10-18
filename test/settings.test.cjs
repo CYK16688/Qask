@@ -30,6 +30,9 @@ test('the sidebar and collapsed rail expose a settings entry point', () => {
   assert.match(indexHtml, /id="settingsLayoutShortcut"/);
   assert.match(indexHtml, /id="settingsComparisonShortcut"/);
   assert.match(indexHtml, /id="settingsTheme"/);
+  assert.match(indexHtml, /id="settingsAutoZoom"/);
+  assert.match(indexHtml, /id="settingsAlwaysOnTop"/);
+  assert.match(indexHtml, /id="settingsLaunchAtLogin"/);
   assert.match(indexHtml, /id="settingsSendMode"/);
   assert.match(indexHtml, /id="settingsComparisonModel"/);
   assert.match(indexHtml, /id="settingsConfirmSummary"[^>]*type="checkbox"/);
@@ -46,6 +49,9 @@ test('settings persist with the status transcript hidden by default', () => {
   assert.match(renderer, /settings: "qask\.settings"/);
   assert.match(renderer, /showStatusBar: false/);
   assert.match(renderer, /confirmSummary: true/);
+  assert.match(renderer, /autoPanelZoom: true/);
+  assert.match(renderer, /alwaysOnTop: false/);
+  assert.match(renderer, /launchAtLogin: false/);
   assert.match(renderer, /confirmSummary: value\.confirmSummary !== false/);
   assert.match(renderer, /showStatusBar: value\.showStatusBar === true/);
   assert.match(renderer, /function persistSettings\(\)/);

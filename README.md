@@ -31,9 +31,9 @@ Qask is **not** a multi-provider API client. It does not use model APIs or a Qas
 - **Flexible workspace** — switch between focused, side-by-side, three-column, and 2×2 layouts.
 - **Theme** — follow the macOS appearance or pin the Qask shell to dark/light; provider sites that support `prefers-color-scheme` follow the same preference.
 - **Send modes and queue** — hover the send button to choose immediate send, queue, or fill-only. A queued prompt first waits for any in-flight answers to finish, then sends and advances automatically once every panel has finished.
-- **Settings** — configure theme, shortcuts, default send mode, default comparison model, AI-summary confirmation, status transcript visibility, and local-data access; the About section links the version, AGPL license, and the open-source repository.
+- **Settings** — configure theme, panel auto-zoom, always-on-top, launch-at-login, shortcuts, default send mode, default comparison model, AI-summary confirmation, status transcript visibility, and local-data access; the About section links the version, AGPL license, and the open-source repository.
 - **Local by design** — Qask has no Git, GitHub, repository scanning, cloud sync, or provider API integration.
-- **Explicit attachment handling** — images, audio, PDFs, and microphone recordings stay local; recordings and pasted images are saved to `~/Pictures/Qask Attachments/` so you can pick them in each provider's visible upload UI.
+- **Explicit attachment handling** — images, audio, PDFs, and microphone recordings stay local; drag files onto the composer or pick them with `+`, review the tray above the text field, then choose them in each provider's visible upload UI. Recordings and pasted images are saved to `~/Pictures/Qask Attachments/`.
 
 ## Screenshots
 
@@ -66,8 +66,10 @@ The screenshots were captured in version 1.0.3 from a fresh, unauthenticated Qas
 
 ### Composer, attachments, and screenshots
 
+![Attachment tray above the composer: a local image is queued above the text field, which remains available for typing.](docs/images/attachments.png)
+
 - A shared bottom composer for the active panels: `Enter` sends, `Shift + Enter` inserts a newline.
-- Local attachment queue for images, audio, and PDFs: up to 5 files and 20 MB total. Images are limited to 5 MB; audio and PDFs to 10 MB each.
+- Local attachment queue for images, audio, and PDFs: up to 5 files and 20 MB total. Drag files onto the composer or use `+`; the tray sits above the text field so you can keep typing. Images are limited to 5 MB; audio and PDFs to 10 MB each.
 - Explicit local microphone recording (up to 2 minutes); recordings become local audio attachments.
 - Attachment turns are never injected or auto-sent by Qask. Choose, preview, and send files through the target website's own visible upload interface.
 - Screen-region capture saved locally to `~/Pictures/Qask Screenshots/`.
@@ -227,7 +229,7 @@ Qask 是一个本地运行的 macOS / Windows / Electron 桌面工具，专注**
 - 支持单、双、三、四面板布局，`Alt + ← / →` 可在 Qask 界面聚焦时快速切换（面板内聚焦时请用侧栏按钮）。
 - 外观主题支持“跟随系统 / 暗色 / 亮色”，并同步给支持深色模式的第三方网页。
 - 发送按钮支持“立即发送 / 排队发送 / 仅填入”三种方式；排队消息会先等当前回答结束，再在所有面板完成后自动发送下一条。
-- 设置中可配置主题、快捷键、默认发送方式、对比默认模型、AI 总结确认、底部状态栏（默认隐藏）和本地数据目录；「关于」里显示版本、AGPL 许可与开源仓库地址。
+- 设置中可配置主题、面板自动缩放、窗口置顶、登录时启动、快捷键、默认发送方式、对比默认模型、AI 总结确认、底部状态栏（默认隐藏）和本地数据目录；「关于」里显示版本、AGPL 许可与开源仓库地址。
 - 内置 ChatGPT、Gemini、豆包（Doubao）、Claude、Copilot、DeepSeek、Kimi 网页入口；可拖动排序，当前布局使用前 *N* 个网站。
 - 可添加**自定义 HTTPS 网页模型**；默认只填入文字，只有对精确 origin 明确授权后才会尝试自动发送。
 - 每个网站拥有独立持久化 Electron 会话分区，登录状态相互隔离，通常可在本机重启后保留。

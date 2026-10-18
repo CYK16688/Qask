@@ -130,6 +130,8 @@
           <ol id="messageQueueList" class="message-queue-list"></ol>
         </section>
         <form id="broadcastForm" class="composer-form">
+          <ul id="attachmentPreview" class="attachment-preview" aria-label="待发送附件" aria-live="polite"></ul>
+          <div class="composer-drop-hint" id="composerDropHint" aria-hidden="true">松开以添加图片、音频或 PDF</div>
           <div class="composer-input">
             <button id="addAttachment" type="button" class="input-action-btn add-btn" aria-label="添加附件" title="添加图片、音频或 PDF 附件">
               <span class="add-icon">+</span>
@@ -173,7 +175,6 @@
             </div>
             <input id="attachmentInput" type="file" hidden multiple accept="image/png,image/jpeg,image/gif,image/webp,audio/*,application/pdf,.pdf,.webm,.ogg,.mp3,.wav,.m4a,.aac,.flac">
           </div>
-          <ul id="attachmentPreview" class="attachment-preview" aria-label="待发送附件" aria-live="polite"></ul>
         </form>
       </footer>
     </div>
@@ -195,6 +196,21 @@
               <option value="dark">暗色</option>
               <option value="light">亮色</option>
             </select>
+          </label>
+        </section>
+        <section class="settings-section">
+          <h4>窗口与布局</h4>
+          <label class="settings-check">
+            <input id="settingsAutoZoom" type="checkbox">
+            <span>三/四面板自动缩放网页</span>
+          </label>
+          <label class="settings-check">
+            <input id="settingsAlwaysOnTop" type="checkbox">
+            <span>窗口总在最前</span>
+          </label>
+          <label class="settings-check">
+            <input id="settingsLaunchAtLogin" type="checkbox">
+            <span>登录系统时自动启动 Qask</span>
           </label>
         </section>
         <section class="settings-section">

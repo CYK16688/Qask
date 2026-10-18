@@ -517,6 +517,22 @@ ipcMain.handle("app:open-external", async (event, url) => {
   }
 });
 
+ipcMain.handle("window:set-always-on-top", (event, enabled) => {
+  if (!isTrustedShellSender(event) || !mainWindow) return false;
+  mainWindow.setAlwaysOnTop(Boolean(enabled));
+  return mainWindow.isAlwaysOnTop();
+});
+
+ipcMain.handle("app:set-launch-at-login", (event, enabled) => {
+  if (!isTrustedShellSender(event)) return false;
+  try {
+    app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
+    return Boolean(app.getLoginItemSettings().openAtLogin);
+  } catch (error) {
+    return false;
+  }
+});
+
 ipcMain.handle("app:open-user-data", async (event) => {
   if (!isTrustedShellSender(event)) return false;
   try {
