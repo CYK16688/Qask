@@ -24,6 +24,36 @@ A local-first desktop workspace that turns the AI sites you already use into one
 
 > **Release status:** Qask is open source under **AGPL-3.0-or-later**. The macOS arm64 1.0.2 preview is signed and notarized; the app inside the DMG carries the notarization ticket, while **The DMG itself is not code-signed**. Version 1.0.3 adds a **Windows x64 preview** (portable + installer) under [v1.0.3](https://github.com/CYK16688/Qask/releases/tag/v1.0.3); the Windows builds are **unsigned**, cross-built from macOS, and **not yet been validated on Windows hardware**. A separate **unsigned** arm64 macOS 1.0.3 DMG is attached to the same pre-release for local evaluation; use the signed/notarized 1.0.2 DMG for normal Mac use. Treat both as evaluation previews, not production support.
 
+## The short version
+
+Qask is a **local-first multi-AI comparison desktop app** for people who no longer believe one model has the whole answer.
+
+It puts the official **ChatGPT, Gemini, Claude, DeepSeek, Kimi, Doubao (豆包), and Copilot** web apps in one window. One composer sends the same prompt to up to four active panels; a comparison view shows where their answers converge and where they disagree.
+
+If you are looking for a **ChatGPT + Claude + Gemini side-by-side desktop app**, a **multi-LLM comparison workspace**, or a **local AI aggregator that does not require API keys**, this is the category Qask is building in.
+
+> The bottleneck is no longer access to a model. It is judgment across models. Qask makes that judgment a first-class workflow.
+
+### Who it is for
+
+- **Researchers and analysts** who want to see where models agree, where they hallucinate, and which source is worth trusting.
+- **Writers and product teams** who use one model for structure, another for critique, and a third for a different voice.
+- **Developers and technical teams** who compare explanations, code paths, and trade-offs before committing.
+- **Prompt engineers** who want to test the same instruction against several model families without copying and pasting between tabs.
+- **Anyone who pays for more than one AI subscription** and wants the subscriptions to feel like one workspace.
+
+### What makes Qask different
+
+Qask is not another API wrapper, not a prompt marketplace, and not a hosted chat product. It is a **local control room for the multi-model web**.
+
+| Approach | What you get | What you give up |
+| --- | --- | --- |
+| API aggregator | One API, automation, programmatic output | API keys, per-token costs, no native tools or model UI |
+| A row of browser tabs | The real products, exactly as shipped | Constant context switching, no shared composer, no comparison |
+| Qask | Real provider UIs, one prompt, persistent sessions, live comparison | It inherits the fragility of third-party web UIs |
+
+The bet behind Qask is simple: in a world of many strong models, **the interface that matters is not another chat box — it is a place to compare**.
+
 ## Why Qask
 
 The web is still where AI products move fastest. Qask does not wrap an API, proxy a prompt, or flatten every model into the same chat box. It gives the real websites a better room.
@@ -36,6 +66,16 @@ The web is still where AI products move fastest. Qask does not wrap an API, prox
 | **A workspace, not a tab farm** | Persistent per-site sessions, draggable website order, four layouts, queue mode, and a local-first ownership model. |
 | **Attachments that respect the boundary** | Drag images, audio, or PDFs into the composer. Qask can place a local file into a site's own file input; if that is not possible, it tells you and keeps the manual path. |
 | **Built to be inspected** | Sandboxed webviews, explicit HTTPS origin checks, a narrow preload bridge, and an open-source codebase you can read before you sign in anywhere. |
+
+## Built for real work
+
+Qask is most useful when the question is too important for one answer:
+
+- **Cross-check a claim** — ask several models the same factual question and look for consensus, caveats, and confident mistakes.
+- **Pressure-test a decision** — give the same brief to a strategist, a critic, and a technical model; compare the assumptions each one makes.
+- **Iterate a prompt** — keep the prompt identical, change the model, and see which instruction survives contact with different model families.
+- **Compare explanations** — ask for a concept explained at several levels, then keep the version that actually lands.
+- **Build a reading desk** — keep ChatGPT, Claude, Gemini, and DeepSeek open around a single research question without losing the original context.
 
 ## A tour of the workspace
 
@@ -210,6 +250,32 @@ See [docs/architecture.md](docs/architecture.md) for the startup chain, webview 
 - macOS microphone and screen-capture permissions may be required for those features.
 - The Windows builds are unsigned and not hardware-validated. The macOS 1.0.2 preview is signed and notarized, but remains an evaluation preview.
 
+## FAQ
+
+**Is Qask an API client?**  
+No. Qask opens the official provider websites in isolated desktop webviews. It has no model API integration, no API-key storage, and no hosted relay.
+
+**Do I need API keys?**  
+No. Sign in to the provider websites you already use. Qask never asks for an API key or your provider password.
+
+**Which AI sites are built in?**  
+ChatGPT, Gemini, Doubao (豆包), Claude, Copilot, DeepSeek, and Kimi, plus any custom HTTPS website you add.
+
+**Can I compare ChatGPT, Claude, and Gemini side by side?**  
+Yes. Choose the dual, triple, or 2×2 layout, order the sites in the sidebar, and use one composer for the active panels. Open **对比 / Compare** to read the latest visible answers side by side.
+
+**Does Qask work on macOS and Windows?**  
+Yes. macOS arm64 has a signed/notarized 1.0.2 preview; Windows x64 has an unsigned 1.0.3 preview. See [Install](#install) for exact caveats.
+
+**Does Qask upload attachments automatically?**  
+It can try. Qask matches local images, audio, or PDFs to a compatible site file input and sets the file through Electron's debugging protocol. If the site does not expose a usable input, Qask keeps the manual upload path. Treat automatic upload as experimental.
+
+**Is Qask free?**  
+Qask is open source under **AGPL-3.0-or-later**. Commercial licensing is available for proprietary distribution or hosted modifications; see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+
+**Why not just use browser tabs?**  
+Tabs are good at keeping pages. They are bad at turning several answers into one decision. Qask adds a shared composer, queueing, persistent workspaces, synchronized comparison, and a local-first privacy boundary around the same real websites.
+
 ## Documentation
 
 - [User guide](docs/user-guide.md)
@@ -222,6 +288,10 @@ See [docs/architecture.md](docs/architecture.md) for the startup chain, webview 
 - [Notices](NOTICE)
 - [Repository and distribution boundaries](docs/repository-boundaries.md)
 - [Release checklist](docs/release-checklist.md)
+
+## If Qask is useful to you
+
+Star the repository, share it with someone who compares models for a living, or open an issue with the provider and workflow you are trying to use. Stars and real usage reports are how a small local-first project becomes easier to find — and easier to improve.
 
 ## Contributing, questions, security
 
@@ -251,7 +321,9 @@ Qask is not affiliated with, sponsored by, or endorsed by OpenAI, Google, Anthro
 
 **一次提问，多模型同屏。**
 
-Qask 是一个本地优先的 macOS / Windows 桌面工作区：把你已经在用的 AI 官方网页放进同一个窗口，用一个输入框并行提问，在原生界面里阅读回答，再用「对比」并排查看和总结差异。无需 API Key。
+Qask 是一个本地优先的 **多模型对比** 桌面工作区，也是一个无需 API Key 的 AI 对比工具：把你已经在用的 AI 官方网页放进同一个窗口，用一个输入框并行提问，在原生界面里阅读回答，再用「对比」并排查看和总结差异。
+
+如果你在找 **ChatGPT / Claude / Gemini / DeepSeek / Kimi 同屏对比**、Mac 多模型对比工具，或一个不依赖 API Key 的本地 AI 对比软件，Qask 就是为这个场景设计的。
 
 </div>
 
