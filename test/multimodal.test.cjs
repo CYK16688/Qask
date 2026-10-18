@@ -10,7 +10,7 @@ const createMultimodalHarness = () => {
   const start = renderer.indexOf('const ATTACHMENT_LIMITS =');
   const end = renderer.indexOf('const PANEL_LOAD_STATES =');
   const source = renderer.slice(start, end);
-  return new Function('getPanelLabel', `${source}\nreturn { ATTACHMENT_LIMITS, getAttachmentKind, validateAttachmentMeta, buildAttachmentPayloads, shouldClearAttachmentsForResults, shouldAutoSendAttachmentMessage, isTrustedGuestUrl, getAttachmentDispatchStatus: typeof getAttachmentDispatchStatus === 'function' ? getAttachmentDispatchStatus : null, getBroadcastResultLevel: typeof getBroadcastResultLevel === 'function' ? getBroadcastResultLevel : null, createBroadcastSnapshot: typeof createBroadcastSnapshot === 'function' ? createBroadcastSnapshot : null, createPendingBroadcastTurn: typeof createPendingBroadcastTurn === 'function' ? createPendingBroadcastTurn : null, getPendingBroadcastAction: typeof getPendingBroadcastAction === 'function' ? getPendingBroadcastAction : null, mergePendingBroadcastResults: typeof mergePendingBroadcastResults === 'function' ? mergePendingBroadcastResults : null, settleBroadcastTasks: typeof settleBroadcastTasks === 'function' ? settleBroadcastTasks : null, createDispatchCoordinator: typeof createDispatchCoordinator === 'function' ? createDispatchCoordinator : null, shouldClearBroadcastDraft: typeof shouldClearBroadcastDraft === 'function' ? shouldClearBroadcastDraft : null, createRecordingSession: typeof createRecordingSession === 'function' ? createRecordingSession : null, requestRecordingStop: typeof requestRecordingStop === 'function' ? requestRecordingStop : null, getRecordingStopAction: typeof getRecordingStopAction === 'function' ? getRecordingStopAction : null };`)((panel) => panel?.label || panel?.modelId || '网页面板');
+  return new Function('getPanelLabel', `${source}\nreturn { ATTACHMENT_LIMITS, getAttachmentKind, validateAttachmentMeta, buildAttachmentPayloads, isTrustedGuestUrl, createBroadcastSnapshot: typeof createBroadcastSnapshot === 'function' ? createBroadcastSnapshot : null, createPendingBroadcastTurn: typeof createPendingBroadcastTurn === 'function' ? createPendingBroadcastTurn : null, getPendingBroadcastAction: typeof getPendingBroadcastAction === 'function' ? getPendingBroadcastAction : null, mergePendingBroadcastResults: typeof mergePendingBroadcastResults === 'function' ? mergePendingBroadcastResults : null, settleBroadcastTasks: typeof settleBroadcastTasks === 'function' ? settleBroadcastTasks : null, createDispatchCoordinator: typeof createDispatchCoordinator === 'function' ? createDispatchCoordinator : null, shouldClearBroadcastDraft: typeof shouldClearBroadcastDraft === 'function' ? shouldClearBroadcastDraft : null, summarizeBroadcastResults: typeof summarizeBroadcastResults === 'function' ? summarizeBroadcastResults : null, isTimedOutResult: typeof isTimedOutResult === 'function' ? isTimedOutResult : null, BROADCAST_STATUS: typeof BROADCAST_STATUS === 'object' ? BROADCAST_STATUS : null, createRecordingSession: typeof createRecordingSession === 'function' ? createRecordingSession : null, requestRecordingStop: typeof requestRecordingStop === 'function' ? requestRecordingStop : null };`)((panel) => panel?.label || panel?.modelId || '网页面板');
 };
 
 const createRendererAttachmentInspectionHarness = () => {
@@ -90,27 +90,19 @@ test('attachment selection fails closed when the local-data inspection bridge is
   assert.deepEqual(result.rejected.map((entry) => entry.file.name), ['safe.pdf']);
 });
 
-test('attachment payloads contain metadata only and never read local bytes for guest execution', async () => {
+test('attachment payloads contain metadata only and never read local bytes for guest execution', () => {
   const { buildAttachmentPayloads } = createMultimodalHarness();
   const entries = [
     { id: 'image', kind: 'image', source: 'local', file: { name: 'photo.png', type: 'image/png', size: 12 } },
     { id: 'audio', kind: 'audio', source: 'recording', file: { name: 'voice.webm', type: 'audio/webm', size: 24 } },
   ];
-  const result = await buildAttachmentPayloads(entries);
+  const payload = buildAttachmentPayloads(entries);
 
-  assert.deepEqual(result.payload, [
+  assert.deepEqual(payload, [
     { id: 'image', kind: 'image', name: 'photo.png', type: 'image/png', size: 12, source: 'local' },
     { id: 'audio', kind: 'audio', name: 'voice.webm', type: 'audio/webm', size: 24, source: 'recording' },
   ]);
-  assert.deepEqual(result.failures, []);
-  assert.doesNotMatch(JSON.stringify(result.payload), /data:/i);
-});
-
-test('third-party page reports never auto-clear local attachments', () => {
-  const { shouldClearAttachmentsForResults } = createMultimodalHarness();
-
-  assert.equal(shouldClearAttachmentsForResults([{ attachments: { confirmed: 0 } }], 1), false);
-  assert.equal(shouldClearAttachmentsForResults([{ attachments: { confirmed: 1 } }, { attachments: { confirmed: 1 } }], 1), false);
+  assert.doesNotMatch(JSON.stringify(payload), /data:/i);
 });
 
 test('attachment injection only targets the configured HTTPS provider origins', () => {
@@ -123,50 +115,23 @@ test('attachment injection only targets the configured HTTPS provider origins', 
   assert.equal(isTrustedGuestUrl('https://attacker.example/chatgpt.com', allowedOrigins), false);
 });
 
-test('attachment mode blocks auto-send when any local attachment cannot be serialized', () => {
-  const { shouldAutoSendAttachmentMessage } = createMultimodalHarness();
-
-  assert.equal(shouldAutoSendAttachmentMessage(0, 0), true);
-  assert.equal(shouldAutoSendAttachmentMessage(1, 0), false);
-  assert.equal(shouldAutoSendAttachmentMessage(1, 1), false);
-});
-
 test('guest scripts never receive attachment bytes or attempt generic file/paste injection', () => {
   const dispatchStart = renderer.indexOf('async function dispatchMessage');
   const dispatchEnd = renderer.indexOf('function presentResults');
   const dispatchSource = renderer.slice(dispatchStart, dispatchEnd);
 
-  assert.doesNotMatch(renderer, /readAsDataURL|new DataTransfer\(\)|ClipboardEvent\('paste'|new File\(\[blob\]/);
+  // Scope the byte-injection check to guest scripts and the dispatch path: the
+  // renderer legitimately builds a File for local recording, which never reaches
+  // a provider page.
+  const adapterSource = renderer.slice(
+    renderer.indexOf('const buildChatGPTScript'),
+    renderer.indexOf('const DEFAULT_MODELS'),
+  );
+  assert.doesNotMatch(dispatchSource, /readAsDataURL|new DataTransfer\(\)|ClipboardEvent\('paste'|new File\(\[blob\]/);
+  assert.doesNotMatch(adapterSource, /readAsDataURL|new DataTransfer\(\)|ClipboardEvent\('paste'|new File\(\[blob\]/);
   assert.doesNotMatch(dispatchSource, /attachmentManifest[^\n]*dataUri/);
   assert.match(dispatchSource, /if \(hasAttachments\) \{[\s\S]*?manualRequired: attachmentManifest\.map/);
   assert.doesNotMatch(dispatchSource, /executeJavaScript\([^)]*attachmentManifest/);
-});
-
-test('attachment delivery is never reported as complete before a third-party page can be confirmed', () => {
-  const { getAttachmentDispatchStatus } = createMultimodalHarness();
-
-  assert.equal(typeof getAttachmentDispatchStatus, 'function');
-  assert.equal(getAttachmentDispatchStatus({ requested: 0 }), 'success');
-  assert.equal(getAttachmentDispatchStatus({ requested: 1, assigned: 1, manualRequired: [] }), 'partial');
-  assert.equal(getAttachmentDispatchStatus({ requested: 2, assigned: 1, manualRequired: [{ id: 'pdf' }] }), 'partial');
-  assert.equal(getAttachmentDispatchStatus({ requested: 1, assigned: 0, manualRequired: [{ id: 'audio' }] }), 'error');
-});
-
-test('an attempted third-party attachment handoff is a warning, not an error', () => {
-  const { getBroadcastResultLevel } = createMultimodalHarness();
-
-  assert.equal(typeof getBroadcastResultLevel, 'function');
-  assert.equal(getBroadcastResultLevel([{ status: 'partial' }]), 'warning');
-  assert.equal(getBroadcastResultLevel([{ status: 'partial' }, { status: 'success' }]), 'warning');
-  assert.equal(getBroadcastResultLevel([{ status: 'error' }]), 'error');
-  assert.equal(getBroadcastResultLevel([{ status: 'success' }]), 'success');
-});
-
-test('a mixed broadcast result remains an error when any recipient fails', () => {
-  const { getBroadcastResultLevel } = createMultimodalHarness();
-
-  assert.equal(getBroadcastResultLevel([{ status: 'success' }, { status: 'error' }]), 'error');
-  assert.equal(getBroadcastResultLevel([{ status: 'partial' }, { status: 'error' }]), 'error');
 });
 
 test('webpage dispatches do not leave a composer result hint', () => {
@@ -369,15 +334,6 @@ test('attachment turns are never retained for automatic recipient-only retry', (
   );
 });
 
-test('an inactive recorder drains its final data event before host cleanup', () => {
-  const { getRecordingStopAction } = createMultimodalHarness();
-
-  assert.equal(typeof getRecordingStopAction, 'function');
-  assert.equal(getRecordingStopAction({ state: 'recording' }), 'stop');
-  assert.equal(getRecordingStopAction({ state: 'inactive' }), 'draining');
-  assert.equal(getRecordingStopAction(null), 'cleanup');
-});
-
 test('recording stop requests preserve buffered chunks until the owning recorder finalizes', () => {
   const { createRecordingSession, requestRecordingStop } = createMultimodalHarness();
   const session = createRecordingSession({ generation: 1, recorder: { state: 'recording' }, stream: {}, leaseId: 'lease-a' });
@@ -403,4 +359,205 @@ test('an externally inactive recorder still preserves a final data chunk for its
   assert.equal(session.stopRequested, false);
   session.chunks.push({ size: 16 });
   assert.deepEqual(session.chunks, [{ size: 16 }]);
+});
+
+test('a watchdog expiry is reported as unconfirmed rather than as a failed send', async () => {
+  const { settleBroadcastTasks, isTimedOutResult, BROADCAST_STATUS } = createMultimodalHarness();
+
+  const results = await settleBroadcastTasks(
+    [{ label: 'Slow' }],
+    () => new Promise(() => {}),
+    5,
+  );
+
+  assert.equal(results[0].status, BROADCAST_STATUS.error);
+  assert.equal(results[0].timedOut, true);
+  assert.equal(isTimedOutResult(results[0]), true);
+  assert.match(results[0].message, /超时/);
+  assert.match(results[0].message, /尚未确认/);
+
+  // A rejected send is a real failure and must never be reported as unconfirmed.
+  const [rejected] = await settleBroadcastTasks(
+    [{ label: 'Rejected' }],
+    () => Promise.reject(new Error('provider detail')),
+    100,
+  );
+  assert.equal(isTimedOutResult(rejected), false);
+});
+
+test('the round summary counts every recipient, including an all-partial attachment round', () => {
+  const { summarizeBroadcastResults } = createMultimodalHarness();
+
+  const allPartial = summarizeBroadcastResults([
+    { status: 'partial', attemptedAutoSend: false },
+    { status: 'partial', attemptedAutoSend: false },
+    { status: 'partial', attemptedAutoSend: false },
+  ]);
+  assert.deepEqual(allPartial, {
+    total: 3,
+    attemptedAutoSend: 0,
+    filled: 0,
+    attachmentOnly: 3,
+    pending: 0,
+    timedOut: 0,
+    failed: 0,
+  });
+
+  const mixed = summarizeBroadcastResults([
+    { status: 'success', attemptedAutoSend: true },
+    { status: 'success', attemptedAutoSend: false },
+    { status: 'pending' },
+    { status: 'error', timedOut: true },
+    { status: 'error' },
+    { status: 'partial', attemptedAutoSend: false },
+  ]);
+  assert.deepEqual(mixed, {
+    total: 6,
+    attemptedAutoSend: 1,
+    filled: 1,
+    attachmentOnly: 1,
+    pending: 1,
+    timedOut: 1,
+    failed: 1,
+  });
+
+  // Every recipient lands in exactly one bucket, so no panel can vanish silently.
+  const buckets = mixed.attemptedAutoSend + mixed.filled + mixed.attachmentOnly + mixed.pending + mixed.timedOut + mixed.failed;
+  assert.equal(buckets, mixed.total);
+});
+
+test('a panel still holding the previous turn is left alone instead of being sent again', () => {
+  const rendererSource = renderer.slice(
+    renderer.indexOf('async function dispatchMessage'),
+    renderer.indexOf('function presentResults'),
+  );
+
+  assert.match(rendererSource, /if \(dispatchCoordinator\.isBusy\(panelState\.webview\)\) \{/);
+  assert.match(rendererSource, /status: BROADCAST_STATUS\.pending/);
+  assert.match(rendererSource, /以免出现重复提问/);
+  assert.doesNotMatch(rendererSource, /上一轮消息仍在该网页中处理/);
+});
+
+test('a failed panel carries an actionable hint without reflecting page text', () => {
+  const rendererSource = renderer.slice(
+    renderer.indexOf('async function dispatchMessage'),
+    renderer.indexOf('function formatBytes'),
+  );
+
+  assert.match(rendererSource, /hint: buildDispatchFailureHint\(usingFallback\)/);
+  // The fixed local failure string and the anti-reflection rule both survive.
+  assert.match(rendererSource, /message: `网页操作失败\$\{usingFallback \? " \(通用策略\)" : ""\}`/);
+  assert.doesNotMatch(rendererSource, /error\?\.message|reason\b.*message:/);
+});
+
+test('attachments can be cleared in one action without touching a guest page', () => {
+  const previewSource = renderer.slice(
+    renderer.indexOf('function renderAttachmentPreview'),
+    renderer.indexOf('async function startAudioRecording'),
+  );
+  const clickSource = renderer.slice(
+    renderer.indexOf('attachmentPreview.addEventListener("click"'),
+    renderer.indexOf('function selectLayout'),
+  );
+
+  assert.match(previewSource, /dataset\.attachmentAction = "clear-all"/);
+  assert.match(clickSource, /event\.target\.dataset\.attachmentAction === "clear-all"[\s\S]*?clearAttachments\(\)/);
+  assert.doesNotMatch(clickSource, /fileName/);
+});
+
+test('the composer only takes focus back when the composer already had it', () => {
+  const focusSource = renderer.slice(
+    renderer.indexOf('function restoreComposerFocusAfterBroadcast'),
+    renderer.indexOf('function normalizeId'),
+  );
+
+  assert.match(focusSource, /active === document\.body \|\| active === broadcastInput/);
+  // The old unconditional refocus both duplicated and stole focus from panels.
+  assert.doesNotMatch(renderer, /if \(!document\.activeElement \|\| document\.activeElement !== broadcastInput\)/);
+});
+
+
+test('a wedged dispatch can be released instead of excluding the panel forever', async () => {
+  const { createDispatchCoordinator, settleBroadcastTasks } = createMultimodalHarness();
+  const coordinator = createDispatchCoordinator();
+  const webview = { id: 'wedged-panel' };
+
+  coordinator.run(webview, () => new Promise(() => {}));
+  assert.equal(coordinator.isBusy(webview), true);
+  coordinator.reset(webview);
+  assert.equal(coordinator.isBusy(webview), false);
+
+  // The next run must actually execute again; a swallowed reset would leave the
+  // panel reporting "still processing" for the rest of the app session.
+  const result = await coordinator.run(webview, () => Promise.resolve({ success: true }));
+  assert.deepEqual(result, { success: true });
+});
+
+test('a watchdog timeout releases the in-flight dispatch through its cleanup hook', async () => {
+  const { createDispatchCoordinator, settleBroadcastTasks } = createMultimodalHarness();
+  const coordinator = createDispatchCoordinator();
+  const webview = { id: 'slow-panel' };
+  const released = [];
+
+  coordinator.run(webview, () => new Promise(() => {}));
+  const results = await settleBroadcastTasks(
+    [{ label: 'Slow', webview }],
+    () => new Promise(() => {}),
+    5,
+    (recipient) => {
+      released.push(recipient.webview);
+      coordinator.reset(recipient.webview);
+    },
+  );
+
+  assert.equal(results[0].timedOut, true);
+  assert.deepEqual(released, [webview]);
+  assert.equal(coordinator.isBusy(webview), false);
+});
+
+
+test('a timed-out recipient is not retried automatically even though the turn is retained', () => {
+  const { createBroadcastSnapshot, createPendingBroadcastTurn } = createMultimodalHarness();
+  const panels = [
+    { modelId: 'alpha', label: 'Alpha', webview: { id: 'alpha-view' } },
+    { modelId: 'beta', label: 'Beta', webview: { id: 'beta-view' } },
+  ];
+  const snapshot = createBroadcastSnapshot(panels, 2, 'same turn', []);
+  const pending = createPendingBroadcastTurn(
+    snapshot,
+    { text: 'same turn', revision: 4 },
+    2,
+    [
+      { panel: 'Alpha', status: 'success', attemptedAutoSend: true },
+      { panel: 'Beta', status: 'error', timedOut: true, message: '等待超时' },
+    ],
+  );
+
+  // Nothing is safely retryable and no page was left fill-only: there is no
+  // retained turn, so the next submit starts a new round instead of guessing.
+  assert.equal(pending, null);
+});
+
+test('changing the top-N composition invalidates a retained turn before it can retry a parked panel', () => {
+  const { createBroadcastSnapshot, createPendingBroadcastTurn, getPendingBroadcastAction } = createMultimodalHarness();
+  const panels = [
+    { modelId: 'alpha', label: 'Alpha', webview: { id: 'alpha-view' } },
+    { modelId: 'beta', label: 'Beta', webview: { id: 'beta-view' } },
+  ];
+  const snapshot = createBroadcastSnapshot(panels, 2, 'same turn', []);
+  const pending = createPendingBroadcastTurn(
+    snapshot,
+    { text: 'same turn', revision: 2 },
+    2,
+    [
+      { panel: 'Alpha', status: 'success', attemptedAutoSend: true },
+      { panel: 'Beta', status: 'error', message: 'still busy' },
+    ],
+  );
+
+  assert.equal(getPendingBroadcastAction(pending, { value: 'same turn', revision: 2 }, 2, ['alpha', 'beta']).mode, 'retry');
+  assert.deepEqual(
+    getPendingBroadcastAction(pending, { value: 'same turn', revision: 2 }, 2, ['beta', 'gamma']),
+    { mode: 'new' },
+  );
 });

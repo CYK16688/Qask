@@ -1,7 +1,7 @@
 {
   "name": "qask",
-  "version": "1.0.2",
-  "description": "Qask: multi-AI comparison for macOS. Send one question to ChatGPT, Gemini, Doubao (豆包), Claude, Copilot, DeepSeek, and Kimi at once and compare the answers side by side in their own official web UIs. Local-first Electron desktop app, no API keys. AGPL-3.0-or-later.",
+  "version": "1.0.3",
+  "description": "Qask: multi-AI comparison for macOS and Windows. Send one question to ChatGPT, Gemini, Doubao (豆包), Claude, Copilot, DeepSeek, and Kimi at once and compare the answers side by side in their own official web UIs. Local-first Electron desktop app, no API keys. AGPL-3.0-or-later.",
   "private": true,
   "repository": {
     "type": "git",
@@ -34,11 +34,14 @@
     "start": "node scripts/run-electron.js",
     "dev": "node scripts/run-electron.js",
     "test": "node --test test/**/*.test.cjs",
-    "test:layout-ui": "electron scripts/layout-ui-smoke.js",
+    "test:layout-ui": "node scripts/run-layout-ui-smoke.js",
     "check:public-source": "node scripts/verify-public-source.cjs",
     "package:mac": "electron-builder --mac dmg --arm64 --publish never",
     "notarize:mac": "node scripts/notarize-mac.cjs",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "package:win": "electron-builder --win --x64 --publish never",
+    "package:win:portable": "electron-builder --win portable --x64 --publish never",
+    "package:win:zip": "electron-builder --win zip --x64 --publish never"
   },
   "keywords": [
     "electron",
@@ -73,7 +76,8 @@
       "src/**/*",
       "assets/qask.icns",
       "assets/qask-logo.svg",
-      "package.json"
+      "package.json",
+      "assets/qask.ico"
     ],
     "extraResources": [
       {
@@ -112,6 +116,35 @@
     "dmg": {
       "title": "Qask",
       "artifactName": "Qask-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "icon": "assets/qask.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Qask-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "Qask-${version}-win-setup-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Qask-${version}-win-portable-${arch}.${ext}"
     }
   }
 }

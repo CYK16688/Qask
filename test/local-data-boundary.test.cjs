@@ -4,6 +4,8 @@ const test = require('node:test');
 const {
   inspectAttachmentPath,
   isRestrictedCustomProviderUrl,
+  sanitizeAttachmentFileName,
+  ATTACHMENT_EXTENSION_BY_KIND,
 } = require('../local-data-boundary.cjs');
 
 const createInspectionOptions = () => ({
@@ -109,4 +111,34 @@ test('custom provider URLs reject every query and fragment before persistence', 
   }
 
   assert.equal(isRestrictedCustomProviderUrl('https://example.ai/chat'), false);
+});
+
+
+test('Qask-generated attachment names never carry traversal, separators, or hidden-file prefixes', () => {
+  const image = sanitizeAttachmentFileName('../../My Photo<script>.PNG', 'image');
+  assert.equal(image, 'My Photo-script.png');
+  assert.doesNotMatch(image, /[\\/]/);
+  assert.ok(!image.startsWith('.'));
+
+  const audio = sanitizeAttachmentFileName('/tmp/../voice:note.webm', 'audio');
+  assert.equal(audio, 'voice-note.webm');
+  assert.ok(audio.endsWith('.webm'));
+
+  const hidden = sanitizeAttachmentFileName('.env', 'audio');
+  assert.equal(hidden, 'env.webm');
+
+  const empty = sanitizeAttachmentFileName('', 'image');
+  assert.equal(empty, 'qask-image.png');
+
+  const long = sanitizeAttachmentFileName(`${'a'.repeat(200)}.pdf`, 'document');
+  assert.ok(long.length <= 73, long.length);
+  assert.ok(long.endsWith('.pdf'));
+});
+
+test('Qask-generated attachment names fall back to the kind extension for unknown suffixes', () => {
+  assert.equal(sanitizeAttachmentFileName('report.exe', 'document'), 'report.pdf');
+  assert.equal(sanitizeAttachmentFileName('clip', 'image'), 'clip.png');
+  assert.equal(sanitizeAttachmentFileName('clip', 'audio'), 'clip.webm');
+  assert.equal(sanitizeAttachmentFileName('notes.md', 'document'), 'notes.pdf');
+  assert.deepEqual(ATTACHMENT_EXTENSION_BY_KIND, { image: '.png', audio: '.webm', document: '.pdf' });
 });

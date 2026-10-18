@@ -21,8 +21,8 @@ package.json
 - `package.json` 定义 `start`、`dev` 和基于 Node 内置测试运行器的 `test`。
 - 启动脚本解析 `electron` 包所提供的二进制并启动项目目录。
 - `main.js` 创建 1600×900 的 BrowserWindow，加载 `src/index.html`。
-- `preload.js` 只暴露窄的截图、麦克风和附件检查 IPC 桥接：`window.qask.screenshot`、`window.qask.microphone` 与 `window.qask.attachments.inspect`。附件检查只返回受限本地 manifest；不会把文件路径、文件名、内容或 bytes 暴露给网页 guest。
-- `src/renderer.js` 管理布局、模型注册、webview、广播、附件和界面事件。
+- `preload.js` 只暴露窄的截图、麦克风和附件 IPC 桥接：`window.qask.screenshot`、`window.qask.microphone` 与 `window.qask.attachments.{inspect,persist,reveal}`。`inspect` 校验用户选择的磁盘文件；`persist` 只接受可信 shell 送来的录音/粘贴图片 bytes 并写入 `~/Pictures/Qask Attachments/`；`reveal` 只接受该目录内的 basename。这些接口都不会把文件内容、路径或 bytes 交给网页 guest。
+- `src/renderer.js` 管理布局、模型注册、webview、广播、附件、回答对比和界面事件。
 
 ## 本地数据与 GitHub 隔离
 
@@ -47,15 +47,23 @@ Qask 可将用户明确提交的 composer 文本填入已验证的第三方网�
 
 ## UI 与本地状态
 
-- `src/index.html` 提供侧栏、模型管理、动态工作区和底部输入区。
-- `src/styles.css` 使用深色背景、紫色强调色和 200px 侧栏（折叠后 56px）。
-- `src/renderer.js` 的布局规范支持 `single`、`dual`、`triple` 和 `quad`。
-- 面板不再渲染宿主标题栏；三面板默认 90%、四面板默认 85%，并在 `webview` 的 `dom-ready` 后通过 Electron `setZoomFactor()` 自动应用。刷新、手动缩放和面板内模型切换控件均已移除，整个面板用于网页内容；当前面板成员只由侧栏拖动排序的前 N 名决定。
+- `src/index.html` 提供侧栏、模型管理、动态工作区和底部输入区；输入区上方的 `#broadcastStatus` 是 `aria-live="polite"` 的本地状态条，只显示 Qask 生成的消息（`textContent`，不使用 innerHTML），最多保留 8 条。
+- `src/styles.css` 提供暗色与亮色两套变量，`html[data-theme="light"]` 覆盖表面/边框/文本；默认跟随系统。主题切换通过 `window.qask.theme.set()` 设置主进程 `nativeTheme.themeSource`，使 shell 与支持 `prefers-color-scheme` 的 provider 网页保持一致。
+- 主进程用 `pathToFileURL()` 生成受信任 shell URL，确保 Windows 的 `C:\...` 路径与渲染进程 frame URL 一致；macOS 与 Windows 共用同一套 IPC 与 webview 安全边界。
+- `src/renderer.js` 的布局规范支持 `single`、`dual`、`triple` 和 `quad`。侧栏“外观”提供跟随系统/暗色/亮色三种模式，选择保存在 `qask.theme`。
+- 设置保存在 `qask.settings`（快捷键、默认发送方式、对比默认模型、状态栏可见性）。状态栏默认隐藏，但 `logStatus` 始终写入控制台与内存中的转录。
+- 底部发送按钮悬停菜单提供 `send` / `queue` / `fill` 三种模式；`queue` 队列只保存在渲染进程内存中；待发送条目支持拖动/键盘排序、行内编辑和单条删除，当前发送条锁定。队列条目发送前先等待已有面板空闲（停止按钮消失 + 文本稳定），发送后按“最新回答文本稳定（停止按钮存在时多确认一轮）”判断完成，全部完成或超时后自动发送下一条。
+- 面板不再渲染宿主标题栏；三面板默认 90%、四面板默认 85%，并在 `webview` 的 `dom-ready` 后通过 Electron `setZoomFactor()` 自动应用。常规刷新/缩放/面板内模型切换控件均已移除，整个面板用于网页内容；当前面板成员只由侧栏拖动排序的前 N 名决定。仅在 `did-fail-load` 或 `render-process-gone` 后显示面板内“重新加载”覆盖层（`panel-state-overlay`），重新加载保留该站点的持久化分区。
 - `qask.modelOrder` 是模型网站的规范排序。侧栏仅通过拖动握柄提交排序；`reconcileActivePanelsToModelOrder()` 将排名前 N 个模型映射到 N 个活动面板。面板池最多保留四个已创建的 webview：缩小布局只隐藏未使用面板，恢复布局或将已加载网站重新排入前 N 名时会直接复用其页面、登录态、草稿和滚动位置，不会重新导航。只有当前池内从未加载过的网站才调用 `loadModel()` 创建 webview。侧栏前 N 个条目使用 `.is-active` 样式突出显示。
-- 当前存储键包括：
+- 当前 `localStorage` 存储键包括：
   - `qask.layout`
   - `qask.modelOrder`
   - `qask.customModels`
+  - `qask.hiddenDefaultModels`（被用户删除的内置网站 id；启动时跳过，侧栏“恢复默认网站”清除）
+  - `qask.theme`（`system` / `dark` / `light`）
+  - `qask.settings`（快捷键、默认发送方式、对比默认模型、状态栏可见性）
+- 回答对比不写入 `localStorage` 或磁盘：renderer 在各活动面板 `ready` 且当前 URL 通过 `injectableOrigins` 校验后，执行只读提取脚本（优先使用站点专用 assistant 容器，失败时回退到通用 assistant/markdown 容器），取最后一条可见回答。提取脚本不读取输入框、侧栏或导航，不点击发送，也不修改页面。结果只保存在 renderer 内存。
+- “AI 总结差异”会把已提取的回答整理成提示词，通过所选面板的普通适配器填入并尝试发送；发送前由 renderer 弹出确认。总结内容属于该第三方站点的对话，Qask 只从页面读取显示，不落盘。
 
 历史版本的 API 原型曾将 Key 写入 renderer `localStorage`，但当前网页模式不读取或保存 API Key。未来如重新设计 API 模式，必须采用主进程管理的系统安全存储。
 
@@ -63,11 +71,11 @@ Qask 可将用户明确提交的 composer 文本填入已验证的第三方网�
 
 ## 本地附件与录音
 
-- 附件仅保存在 renderer 内存的 `Map`，不会保存内容、文件路径、录音元数据或麦克风状态到 `localStorage`。
+- 附件队列保存在 renderer 内存的 `Map`，不会把队列、文件路径、录音元数据或麦克风状态写入 `localStorage`。用户选择的磁盘文件保持原样；录音与粘贴图片由主进程写入 `~/Pictures/Qask Attachments/`，并向宿主返回仅用于展示的 `displayPath`。
 - 限制为最多 5 个、合计 20 MB；图片 5 MB、音频/PDF 10 MB；录音最多 120 秒或 10 MB。
-- 附件不读取为 Data URI，也不会交给任何 webview 或 guest JavaScript；带附件时始终保留本地附件，等待用户在目标网站自己的上传界面操作。
+- 附件不读取为 Data URI，也不会交给任何 webview 或 guest JavaScript；带附件时始终保留本地附件，等待用户在目标网站自己的上传界面操作。保存目录、文件名与路径只回传宿主 shell，不进入 guest 脚本；`attachments:persist` 有按类型的大小上限（图片 5 MB、音频/PDF 10 MB），`attachments:reveal` 拒绝目录外路径。
 - `MediaRecorder` 只在用户点击录音后运行。每次录音拥有独立的 stream、chunks、计时器和 permission lease；停止进入 drain 阶段，最终 `dataavailable` 后才由该录音自己的 `stop` 回调完成附件或丢弃。取消、错误、超限与窗口卸载都会停止轨道并清除缓冲。录音作为 `audio/webm`/`audio/ogg` 附件处理，不等同于第三方网站的实时语音模式或语音转写。
-- `preload.js` 仅暴露窄的 `window.qask.microphone` IPC。主进程在 macOS 上先检查/请求 `systemPreferences` 麦克风授权，并签发 30 秒、只允许主 Qask shell 音频请求的短期 lease。所有 provider partition 的权限处理器均为拒绝。
+- `preload.js` 仅暴露窄的 `window.qask.microphone` IPC。主进程在 macOS 上先检查/请求 `systemPreferences` 麦克风授权，并签发 30 秒、只允许主 Qask shell 音频请求的短期 lease；录制期间 renderer 每 10 秒续期一次，停止/取消/出错/卸载都会释放。所有 provider partition 的权限处理器均为拒绝。
 
 ## 截图 IPC
 
@@ -83,14 +91,16 @@ Qask 可将用户明确提交的 composer 文本填入已验证的第三方网�
 
 - 本机已通过 `npm ci` 安装 macOS arm64 Electron，并已验证 `npm start` 可持续运行。若换机后 Electron 指向 `electron.exe` 或报 `spawn ENOEXEC`，删除 `node_modules` 后在目标机器重新运行 `npm ci`。
 - Gemini 注入脚本已通过自动化生成脚本语法检查；外部站点变动仍可能使网页自动发送失效。
+- 加载失败或页面进程退出只提供“重新加载”，不会自动恢复第三方网页的登录状态或草稿。
+- 回答提取是尽力而为的 DOM 启发式：站点改版、未完成回答或反自动化页面可能读不到内容，原网页面板仍是准确来源。
 - 当前不包含 API 模式或 API Key 配置界面。
-- 底部输入区会显示逐面板的文本填入/发送尝试结果；带附件时只会提示需手动处理，不代表第三方网站已上传或模型已读取附件。
+- 底部状态条会显示逐面板的文本填入/发送尝试结果、超时（未确认）、处理中跳过和附件保留提示；它只代表本地观察，不代表第三方网站已上传或模型已读取附件。
 - 静态测试不会证明第三方网页接收附件。上传完成、模型可读性和自动语音交互必须分别在登录后的每个网站手工验证。
 
 
 ## 安全状态
 
-当前仍是原型，不应把静态测试视为正式发布验收；但 webview 安全基线已收紧：shell 与 guest 使用 `webSecurity: true`、禁用不安全内容、guest 无 Node/preload、provider partition 默认拒绝权限。所有弹窗和下载默认拒绝。已隔离的网页可完成正常站内、认证和重定向导航；Qask 填入文本前会在宿主核验当前 HTTPS exact origin，并由网页脚本在每次异步等待后、每次 DOM 写入前复核来源；导航到未登记来源时不注入内容。带附件时不会执行 Qask guest script。自定义网站只有用户显式登记的 HTTPS origin，且默认只填入、不自动发送。当前网页模式不保存 API Key；历史 API 原型曾把 Key 写入 renderer `localStorage`。
+当前仍是原型，不应把静态测试视为正式发布验收；但 webview 安全基线已收紧：shell 与 guest 使用 `webSecurity: true`、禁用不安全内容、guest 无 Node/preload、provider partition 默认拒绝权限。所有弹窗和下载默认拒绝。已隔离的网页可完成正常站内、认证和重定向导航；Qask 填入文本前会在宿主核验当前 HTTPS exact origin，并由网页脚本在每次异步等待后、每次 DOM 写入前复核来源；导航到未登记来源时不注入内容。注入 allowlist（`injectableOrigins`）比主进程导航 allowlist 更窄，认证域（如 `accounts.google.com`、`auth.openai.com`）只允许导航、不允许注入。带附件时不会执行 Qask guest script。回答提取脚本同样只在已验证的 `injectableOrigins` 上执行，且只读取可见文本；AI 总结发送前需要用户确认。自定义网站只有用户显式登记的 HTTPS origin，且默认只填入、不自动发送。当前网页模式不保存 API Key；历史 API 原型曾把 Key 写入 renderer `localStorage`。
 
 源码发布也使用 `package.json` 的显式 `files` allowlist 与 `.npmignore` 的 deny-by-default 规则。测试、布局截图、`artifacts/`、依赖目录和开发工具不会进入 npm 包。任何公开 GitHub 仓库或打包二进制仍需在发布前分别审计，不能仅凭这个规则认定为安全发布。
 

@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const electronBinary = require("electron");
 
 const args = process.argv.slice(2);
-const appPath = path.resolve(process.cwd());
+// Resolve the app from the script location, not from the caller's cwd, so
+// `npm start` works from any directory.
+const appPath = path.resolve(__dirname, "..");
 const traceLayoutLifecycle = args.includes("--trace-layout-lifecycle");
 const appArgs = args.filter((arg) => arg !== "--trace-layout-lifecycle");
-if (appArgs.length === 0) {
+const hasExplicitAppPath = appArgs.some((arg) => (
+  !arg.startsWith("-") && fs.existsSync(path.resolve(arg))
+));
+if (!hasExplicitAppPath) {
   appArgs.push(appPath);
 }
 
 const env = {
   ...process.env,
   ELECTRON_NO_ATTACH_CONSOLE: 'true',
-  ELECTRON_DISABLE_GPU: 'false',
   ELECTRON_LOG_LEVEL: traceLayoutLifecycle ? 'info' : 'error',
 };
 if (traceLayoutLifecycle) {

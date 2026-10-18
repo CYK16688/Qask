@@ -8,7 +8,12 @@ const STORAGE_KEYS = {
   layout: "qask.layout",
   customModels: "qask.customModels",
   modelOrder: "qask.modelOrder",
+  hiddenDefaultModels: "qask.hiddenDefaultModels",
+  theme: "qask.theme",
+  settings: "qask.settings",
 };
+
+const THEME_MODES = new Set(["system", "dark", "light"]);
 
 const PANEL_ZOOM = {
   defaultFactor: 1,
@@ -67,30 +72,27 @@ function validateAttachmentMeta(file, existingEntries = []) {
   return { valid: true, kind };
 }
 
-function shouldClearAttachmentsForResults(results, attachmentCount) {
-  // A third-party page's DOM signal cannot prove the provider uploaded or read a file.
-  // Keep host attachments until the user explicitly removes them.
-  return attachmentCount === 0;
+// A watchdog expiry shares the error status with a rejected send, but it means
+// "we could not confirm", not "the site refused". Keeping the two apart is what
+// stops a slow site from being reported to the user as a failure.
+function isTimedOutResult(result) {
+  return result?.status === BROADCAST_STATUS.error && result?.timedOut === true;
 }
 
-function shouldAutoSendAttachmentMessage(localAttachmentCount, attachmentReadFailureCount) {
-  // Qask deliberately does not inject local file bytes into a provider page.
-  return localAttachmentCount === 0 && attachmentReadFailureCount === 0;
-}
-
-function getAttachmentDispatchStatus(report = {}) {
-  const requested = Number(report.requested) || 0;
-  if (requested === 0) return "success";
-  const assigned = Number(report.assigned) || 0;
-  return assigned > 0 ? "partial" : "error";
-}
-
-function getBroadcastResultLevel(results = []) {
-  const statuses = Array.isArray(results) ? results.map((entry) => entry?.status) : [];
-  if (statuses.includes("error")) return "error";
-  if (statuses.includes("partial")) return "warning";
-  if (statuses.includes("success")) return "success";
-  return "error";
+// Counts every recipient exactly once so the per-round summary can never omit a
+// panel: the previous ad-hoc counters reported nothing at all for a round in
+// which every panel returned "partial" (the attachment path).
+function summarizeBroadcastResults(results = []) {
+  const entries = Array.isArray(results) ? results : [];
+  return {
+    total: entries.length,
+    attemptedAutoSend: entries.filter((entry) => entry?.attemptedAutoSend === true).length,
+    filled: entries.filter((entry) => entry?.status === BROADCAST_STATUS.success && entry?.attemptedAutoSend !== true).length,
+    attachmentOnly: entries.filter((entry) => entry?.status === BROADCAST_STATUS.partial).length,
+    pending: entries.filter((entry) => entry?.status === BROADCAST_STATUS.pending).length,
+    timedOut: entries.filter(isTimedOutResult).length,
+    failed: entries.filter((entry) => entry?.status === BROADCAST_STATUS.error && !isTimedOutResult(entry)).length,
+  };
 }
 
 function createBroadcastSnapshot(panelStates, activeCount, text, attachmentPayload) {
@@ -121,14 +123,19 @@ function shouldClearBroadcastDraft(snapshot, currentDraft, results) {
 function createPendingBroadcastTurn(snapshot, draft, activeCount, results) {
   if (!snapshot || !draft || !Array.isArray(results)) return null;
   // File placement is not a reliable delivery acknowledgement, so never replay
-  // an attachment-bearing turn automatically.
+  // an attachment-bearing turn. The attachment path also runs no guest script,
+  // so there is no filled text to hold or retry.
   if (snapshot.attachments.length > 0) return null;
   const retryRecipients = snapshot.recipients.filter((recipient, index) => (
     results[index]?.attemptedAutoSend !== true
-    && results[index]?.status === "error"
+    // A watchdog timeout means the site may already have received the text, so
+    // retrying automatically would risk asking the same question twice.
+    && results[index]?.timedOut !== true
+    && (results[index]?.status === BROADCAST_STATUS.error
+      || results[index]?.status === BROADCAST_STATUS.pending)
   ));
   const hasManualFill = results.some((result) => (
-    result?.status === "success" && result?.attemptedAutoSend !== true
+    result?.status === BROADCAST_STATUS.success && result?.attemptedAutoSend !== true
   ));
   if (!retryRecipients.length && !hasManualFill) return null;
   return {
@@ -140,6 +147,7 @@ function createPendingBroadcastTurn(snapshot, draft, activeCount, results) {
     attachments: snapshot.attachments,
     retryRecipients,
     hasManualFill,
+    composition: snapshot.recipients.map((recipient) => recipient.modelId || null),
   };
 }
 
@@ -151,12 +159,18 @@ function mergePendingBroadcastResults(pendingTurn, retryRecipients, retryResults
   });
 }
 
-function getPendingBroadcastAction(pendingTurn, currentDraft, activeCount) {
+function getPendingBroadcastAction(pendingTurn, currentDraft, activeCount, currentComposition = null) {
   if (!pendingTurn) return { mode: "new" };
   if (pendingTurn.text !== currentDraft?.value || pendingTurn.revision !== currentDraft?.revision) {
     return { mode: "new" };
   }
   if (pendingTurn.activeCount !== activeCount) return { mode: "new" };
+  // The same count with different websites is a different turn: retrying into a
+  // now-parked panel would send the text to the wrong place.
+  if (Array.isArray(currentComposition)) {
+    const pendingComposition = Array.isArray(pendingTurn.composition) ? pendingTurn.composition : [];
+    if (pendingComposition.join("|") !== currentComposition.join("|")) return { mode: "new" };
+  }
   if (pendingTurn.retryRecipients.length) {
     return {
       mode: "retry",
@@ -173,14 +187,28 @@ function createDispatchCoordinator() {
     isBusy(webview) {
       return Boolean(webview && inFlight.has(webview));
     },
+    // Elapsed time separates "still working on a slow site" from "wedged", and
+    // is the difference between asking the user to wait and asking them to
+    // reload the panel.
+    busyForMs(webview) {
+      const entry = webview ? inFlight.get(webview) : null;
+      return entry ? Date.now() - entry.startedAt : 0;
+    },
+    // A watchdog expiry, a crash, or a navigation means whatever was injected
+    // into the old document can no longer block the panel forever.
+    reset(webview) {
+      if (webview) {
+        inFlight.delete(webview);
+      }
+    },
     run(webview, operation) {
       if (!webview || inFlight.has(webview)) {
         return Promise.resolve({ skipped: true });
       }
       const task = Promise.resolve().then(operation);
-      inFlight.set(webview, task);
+      inFlight.set(webview, { task, startedAt: Date.now() });
       task.finally(() => {
-        if (inFlight.get(webview) === task) {
+        if (inFlight.get(webview)?.task === task) {
           inFlight.delete(webview);
         }
       }).catch(() => {});
@@ -189,14 +217,37 @@ function createDispatchCoordinator() {
   };
 }
 
-async function settleBroadcastTasks(recipients, dispatch, timeoutMs = 15_000) {
+// A watchdog expiry is not the same as a rejected send: the injected script may
+// still be running, so the panel is "unconfirmed", not "failed". It keeps the
+// error status the product already guarantees (docs and tests), but carries an
+// explicit timedOut flag so the summary can say "未确认" instead of claiming a
+// failure the app cannot actually observe. "pending" covers the separate case
+// where a panel is still holding the previous turn.
+const BROADCAST_STATUS = {
+  success: "success",
+  partial: "partial",
+  pending: "pending",
+  error: "error",
+};
+
+async function settleBroadcastTasks(recipients, dispatch, timeoutMs = 15_000, onTimeout = null) {
   const boundedTimeout = Math.max(1, Number(timeoutMs) || 15_000);
   return Promise.all((Array.isArray(recipients) ? recipients : []).map(async (recipient) => {
     const fallbackLabel = recipient?.label || "网页面板";
     let timerId;
     const timeout = new Promise((resolve) => {
       timerId = setTimeout(() => {
-        resolve({ panel: fallbackLabel, status: "error", message: "发送等待超时；请检查该网页后重试" });
+        try {
+          onTimeout?.(recipient);
+        } catch (error) {
+          console.warn("[dispatch] timeout cleanup failed", error?.name || "unknown");
+        }
+        resolve({
+          panel: fallbackLabel,
+          status: BROADCAST_STATUS.error,
+          timedOut: true,
+          message: "等待超时；该网页可能仍在处理，尚未确认是否已发送",
+        });
       }, boundedTimeout);
     });
     try {
@@ -205,26 +256,23 @@ async function settleBroadcastTasks(recipients, dispatch, timeoutMs = 15_000) {
         timeout,
       ]);
     } catch {
-      return { panel: fallbackLabel, status: "error", message: "发送失败" };
+      return { panel: fallbackLabel, status: BROADCAST_STATUS.error, message: "发送失败" };
     } finally {
       clearTimeout(timerId);
     }
   }));
 }
 
-async function buildAttachmentPayloads(entries) {
-  const payload = [];
-  for (const entry of Array.isArray(entries) ? entries : []) {
-    payload.push({
-      id: entry.id,
-      kind: entry.kind,
-      name: entry.file.name,
-      type: entry.file.type,
-      size: entry.file.size,
-      source: entry.source,
-    });
-  }
-  return { payload, failures: [] };
+function buildAttachmentPayloads(entries) {
+  // Metadata only: no bytes, path, or data URI ever leaves the renderer.
+  return (Array.isArray(entries) ? entries : []).map((entry) => ({
+    id: entry.id,
+    kind: entry.kind,
+    name: entry.file.name,
+    type: entry.file.type,
+    size: entry.file.size,
+    source: entry.source,
+  }));
 }
 
 function isTrustedGuestUrl(value, allowedOrigins = []) {
@@ -269,11 +317,6 @@ function buildOriginGuardedScript(script, allowedOrigins = []) {
   })()`;
 }
 
-function getRecordingStopAction(recorder) {
-  if (!recorder) return "cleanup";
-  return recorder.state === "inactive" ? "draining" : "stop";
-}
-
 function createRecordingSession({ generation, recorder, stream, leaseId, mimeType, startedAt = Date.now() }) {
   return {
     generation,
@@ -289,6 +332,7 @@ function createRecordingSession({ generation, recorder, stream, leaseId, mimeTyp
     finalized: false,
     timer: null,
     limitTimer: null,
+    leaseRenewTimer: null,
   };
 }
 
@@ -297,7 +341,6 @@ function requestRecordingStop(session, { discard = false, message = "" } = {}) {
   session.discard = session.discard || discard;
   if (message) session.stopMessage = message;
   if (session.stopRequested) {
-    session.stopRequested = true;
     return "draining";
   }
   if (session.recorder?.state === "inactive") return "draining";
@@ -371,37 +414,6 @@ function getRankedModelIds(order, activeCount) {
   const count = Number.isInteger(activeCount) && activeCount > 0 ? activeCount : 0;
   const rankedOrder = Array.isArray(order) ? order : [];
   return Array.from({ length: count }, (_, index) => rankedOrder[index] || null);
-}
-
-function getPanelPlacementPlan(currentModelIds, order, activeCount) {
-  const currentIds = Array.isArray(currentModelIds) ? currentModelIds : [];
-  const desiredIds = getRankedModelIds(order, activeCount);
-  const sourceIndexes = desiredIds.map((modelId) => (modelId ? currentIds.indexOf(modelId) : -1));
-  const reservedIndexes = new Set(sourceIndexes.filter((index) => index >= 0));
-  const availableIndexes = currentIds
-    .map((_, index) => index)
-    .filter((index) => !reservedIndexes.has(index));
-
-  return desiredIds.map((modelId, index) => {
-    const sourceIndex = sourceIndexes[index];
-    const panelIndex = sourceIndex >= 0 ? sourceIndex : availableIndexes.shift();
-    if (!Number.isInteger(panelIndex)) {
-      return { action: modelId ? "load" : "clear", index, modelId: modelId || null, panelIndex: null };
-    }
-    if (!modelId) {
-      return { action: "clear", index, modelId: null, panelIndex };
-    }
-    if (sourceIndex >= 0) {
-      return {
-        action: sourceIndex === index ? "keep" : "move",
-        index,
-        modelId,
-        sourceIndex,
-        panelIndex,
-      };
-    }
-    return { action: "load", index, modelId, panelIndex };
-  });
 }
 
 function getPanelPoolPlacement(poolModelIds, order, activeCount) {
@@ -521,6 +533,10 @@ function syncModelOrder() {
   modelOrder = normalizeModelOrder(modelOrder, Array.from(modelRegistry.keys()));
 }
 
+function persistHiddenDefaultModels() {
+  saveToStorage(STORAGE_KEYS.hiddenDefaultModels, Array.from(hiddenDefaultModelIds));
+}
+
 function persistCustomModels() {
   const customs = Array.from(modelRegistry.values())
     .filter((model) => model.origin !== "default")
@@ -542,7 +558,11 @@ const buildChatGPTScript = (text, autoSend, _attachments = []) => {
     ${ORIGIN_GUARD_FAILURE}
     let attemptedAutoSend = false;
     const form = target.closest("form");
-    const button = form ? form.querySelector('button[type="submit"]') : null;
+    const button = document.querySelector('button[data-testid="send-button"]')
+      || (form ? form.querySelector('button[type="submit"]') : null)
+      || Array.from(document.querySelectorAll('button[aria-label*="Send" i], button[aria-label*="发送"]'))
+        .find((candidate) => candidate.getClientRects().length > 0)
+      || null;
     if (button && !button.disabled && button.getAttribute?.('aria-disabled') !== 'true' && typeof button.click === 'function') {
       button.click();
       attemptedAutoSend = true;
@@ -553,20 +573,38 @@ const buildChatGPTScript = (text, autoSend, _attachments = []) => {
       target.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
       attemptedAutoSend = true;
     }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
   `
     : "let attemptedAutoSend = false;";
   return `(async () => {
-    const target = document.querySelector('textarea[data-id="prompt-textarea"]');
+    const textarea = document.querySelector('textarea[data-id="prompt-textarea"]');
+    const editable = textarea ? null : document.querySelector('div[contenteditable="true"][data-testid="prompt-textarea"], [contenteditable="true"][aria-label*="Message" i], [contenteditable="true"][aria-label*="消息"]');
+    const target = textarea || editable;
     if (!target) {
       return { success: false, reason: "输入框尚未出现" };
     }
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-    setter.call(target, ${payload});
-    target.dispatchEvent(new Event("input", { bubbles: true }));
-    if (typeof InputEvent === 'function') {
-      target.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
+    if (textarea) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+      setter.call(textarea, ${payload});
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      editable.focus();
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(editable);
+      selection?.addRange(range);
+      document.execCommand("selectAll", false, null);
+      document.execCommand("insertText", false, ${payload});
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+      editable.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    target.dispatchEvent(new Event("change", { bubbles: true }));
     ${sendClause}
     return { success: true, autoSent: attemptedAutoSend, timestamp: Date.now() };
   })()`;
@@ -593,6 +631,9 @@ const buildGeminiScript = (text, autoSend, _attachments = []) => {
       editable.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
       attemptedAutoSend = true;
     }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
   `
     : "let attemptedAutoSend = false;";
   return `(async () => {
@@ -608,9 +649,6 @@ const buildGeminiScript = (text, autoSend, _attachments = []) => {
     selection.addRange(range);
     document.execCommand("selectAll", false, null);
     document.execCommand("insertText", false, ${payload});
-    if (typeof InputEvent === 'function') {
-      editable.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-    }
     editable.dispatchEvent(new Event('input', { bubbles: true }));
     editable.dispatchEvent(new Event('change', { bubbles: true }));
     ${sendClause}
@@ -644,11 +682,15 @@ const buildDoubaoScript = (text, autoSend, _attachments = []) => {
       inputTarget.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
       attemptedAutoSend = true;
     }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
   `
     : "let attemptedAutoSend = false;";
   return `(async () => {
-    const textarea = document.querySelector('textarea');
-    const editable = document.querySelector('[contenteditable="true"]');
+    const isVisible = (element) => Boolean(element && element.getClientRects().length > 0);
+    const textarea = Array.from(document.querySelectorAll('textarea')).find(isVisible) || null;
+    const editable = textarea ? null : (Array.from(document.querySelectorAll('[contenteditable="true"]')).find(isVisible) || null);
     const inputTarget = textarea || editable;
     if (!inputTarget) {
       return { success: false, reason: "输入框尚未出现" };
@@ -657,9 +699,6 @@ const buildDoubaoScript = (text, autoSend, _attachments = []) => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
       setter.call(textarea, ${payload});
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
-      if (typeof InputEvent === 'function') {
-        textarea.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       textarea.dispatchEvent(new Event('change', { bubbles: true }));
     } else if (editable) {
       editable.focus();
@@ -670,9 +709,6 @@ const buildDoubaoScript = (text, autoSend, _attachments = []) => {
       selection.addRange(range);
       document.execCommand("selectAll", false, null);
       document.execCommand("insertText", false, ${payload});
-      if (typeof InputEvent === 'function') {
-        editable.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       editable.dispatchEvent(new Event('input', { bubbles: true }));
       editable.dispatchEvent(new Event('change', { bubbles: true }));
     }
@@ -699,6 +735,9 @@ const buildClaudeScript = (text, autoSend, _attachments = []) => {
       editable.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
       attemptedAutoSend = true;
     }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
     `
     : "let attemptedAutoSend = false;";
 
@@ -715,9 +754,6 @@ const buildClaudeScript = (text, autoSend, _attachments = []) => {
     selection?.addRange(range);
     document.execCommand("selectAll", false, null);
     document.execCommand("insertText", false, ${payload});
-    if (typeof InputEvent === 'function') {
-      editable.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-    }
     editable.dispatchEvent(new Event('input', { bubbles: true }));
     editable.dispatchEvent(new Event('change', { bubbles: true }));
     ${sendClause}
@@ -749,12 +785,16 @@ const buildCopilotScript = (text, autoSend, _attachments = []) => {
       editable.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
       attemptedAutoSend = true;
     }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
     `
     : "let attemptedAutoSend = false;";
 
   return `(async () => {
-    const textarea = document.querySelector('textarea[aria-label*="Copilot" i], textarea[aria-label*="输入"], textarea');
-    const editable = !textarea ? document.querySelector('[contenteditable="true"][role="textbox"], div[contenteditable="true"][aria-label]') : null;
+    const isVisible = (element) => Boolean(element && element.getClientRects().length > 0);
+    const textarea = Array.from(document.querySelectorAll('textarea[aria-label*="Copilot" i], textarea[aria-label*="输入"], textarea')).find(isVisible) || null;
+    const editable = textarea ? null : (Array.from(document.querySelectorAll('[contenteditable="true"][role="textbox"], div[contenteditable="true"][aria-label]')).find(isVisible) || null);
     const target = textarea || editable;
     if (!target) {
       return { success: false, reason: "输入框尚未出现" };
@@ -763,9 +803,6 @@ const buildCopilotScript = (text, autoSend, _attachments = []) => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
       setter.call(textarea, ${payload});
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      if (typeof InputEvent === 'function') {
-        textarea.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       textarea.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
       editable.focus();
@@ -776,9 +813,6 @@ const buildCopilotScript = (text, autoSend, _attachments = []) => {
       selection?.addRange(range);
       document.execCommand('selectAll', false, null);
     document.execCommand('insertText', false, ${payload});
-      if (typeof InputEvent === 'function') {
-        editable.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       editable.dispatchEvent(new Event('input', { bubbles: true }));
       editable.dispatchEvent(new Event('change', { bubbles: true }));
     }
@@ -805,16 +839,22 @@ const buildDeepSeekScript = (text, autoSend, _attachments = []) => {
       target.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
       attemptedAutoSend = true;
     }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
     `
     : "let attemptedAutoSend = false;";
 
   return `(async () => {
+    const isVisible = (element) => Boolean(element && element.getClientRects().length > 0);
     const selectors = [
       'textarea',
       '[contenteditable="true"][data-placeholder]',
       'div[contenteditable="true"][role="textbox"]'
     ];
-    const target = selectors.map((selector) => document.querySelector(selector)).find(Boolean);
+    const target = selectors
+      .map((selector) => Array.from(document.querySelectorAll(selector)).find(isVisible))
+      .find(Boolean);
     if (!target) {
       return { success: false, reason: "输入框尚未出现" };
     }
@@ -822,9 +862,6 @@ const buildDeepSeekScript = (text, autoSend, _attachments = []) => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
       setter.call(target, ${payload});
       target.dispatchEvent(new Event('input', { bubbles: true }));
-      if (typeof InputEvent === 'function') {
-        target.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       target.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
       target.focus();
@@ -835,9 +872,6 @@ const buildDeepSeekScript = (text, autoSend, _attachments = []) => {
       selection?.addRange(range);
       document.execCommand('selectAll', false, null);
       document.execCommand('insertText', false, ${payload});
-      if (typeof InputEvent === 'function') {
-        target.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       target.dispatchEvent(new Event('input', { bubbles: true }));
       target.dispatchEvent(new Event('change', { bubbles: true }));
     }
@@ -864,12 +898,16 @@ const buildKimiScript = (text, autoSend, _attachments = []) => {
       target.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
       attemptedAutoSend = true;
     }
+    if (!attemptedAutoSend) {
+      return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
+    }
     `
     : "let attemptedAutoSend = false;";
 
   return `(async () => {
-    const textarea = document.querySelector('textarea, textarea[aria-label], textarea[placeholder]');
-    const editable = !textarea ? document.querySelector('[contenteditable="true"][role="textbox"], div[contenteditable="true"][aria-label]') : null;
+    const isVisible = (element) => Boolean(element && element.getClientRects().length > 0);
+    const textarea = Array.from(document.querySelectorAll('textarea, textarea[aria-label], textarea[placeholder]')).find(isVisible) || null;
+    const editable = textarea ? null : (Array.from(document.querySelectorAll('[contenteditable="true"][role="textbox"], div[contenteditable="true"][aria-label]')).find(isVisible) || null);
     const target = textarea || editable;
     if (!target) {
       return { success: false, reason: "输入框尚未出现" };
@@ -878,9 +916,6 @@ const buildKimiScript = (text, autoSend, _attachments = []) => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
       setter.call(textarea, ${payload});
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      if (typeof InputEvent === 'function') {
-        textarea.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       textarea.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
       editable.focus();
@@ -891,9 +926,6 @@ const buildKimiScript = (text, autoSend, _attachments = []) => {
       selection?.addRange(range);
       document.execCommand('selectAll', false, null);
       document.execCommand('insertText', false, ${payload});
-      if (typeof InputEvent === 'function') {
-        editable.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-      }
       editable.dispatchEvent(new Event('input', { bubbles: true }));
       editable.dispatchEvent(new Event('change', { bubbles: true }));
     }
@@ -937,9 +969,6 @@ const buildGenericScript = (text, autoSend = false, _attachments = []) => {
         const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
         descriptor?.set?.call(el, ${payload});
         el.dispatchEvent(new Event('input', { bubbles: true }));
-        if (typeof InputEvent === 'function') {
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-        }
         el.dispatchEvent(new Event('change', { bubbles: true }));
       } else {
         el.focus();
@@ -950,9 +979,6 @@ const buildGenericScript = (text, autoSend = false, _attachments = []) => {
         selection?.addRange(range);
         document.execCommand('selectAll', false, null);
         document.execCommand('insertText', false, ${payload});
-        if (typeof InputEvent === 'function') {
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${payload}, inputType: 'insertFromPaste', cancelable: true, composed: true }));
-        }
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
@@ -1024,6 +1050,8 @@ const DEFAULT_MODELS = [
   { id: "kimi", label: "Kimi", url: "https://www.kimi.com/", partition: "persist:kimi", composeMessageScript: buildKimiScript, origin: "default" }
 ];
 
+const DEFAULT_MODEL_IDS = new Set(DEFAULT_MODELS.map((model) => model.id));
+
 const LAYOUT_PRESETS = {
   single: { id: "single", count: 1, columns: "1fr" },
   dual: { id: "dual", count: 2, columns: "repeat(2, 1fr)" },
@@ -1066,10 +1094,88 @@ function synchronizeLayoutControls(layoutId) {
   });
 }
 
+function getEffectiveTheme() {
+  if (themeMode === "system") {
+    return systemThemeQuery.matches ? "dark" : "light";
+  }
+  return themeMode;
+}
+
+function applyTheme({ persist = false } = {}) {
+  const effectiveTheme = getEffectiveTheme();
+  document.documentElement.dataset.theme = effectiveTheme;
+  document.documentElement.style.colorScheme = effectiveTheme;
+  themeOptions.forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.themeMode === themeMode));
+  });
+  // Consumers of prefers-color-scheme (including provider webviews that support
+  // dark mode) follow Electron's nativeTheme source.
+  const setNativeTheme = window.qask?.theme?.set;
+  if (typeof setNativeTheme === "function") {
+    setNativeTheme(themeMode).catch(() => {});
+  }
+  if (persist) {
+    saveToStorage(STORAGE_KEYS.theme, themeMode);
+  }
+}
+
+
+
 const storedCustomModels = loadFromStorage(STORAGE_KEYS.customModels, []);
 const persistedCustomModels = Array.isArray(storedCustomModels) ? storedCustomModels : [];
+const DEFAULT_SETTINGS = Object.freeze({
+  sendMode: "send",
+  comparisonModelId: "auto",
+  showStatusBar: false,
+  shortcuts: Object.freeze({
+    send: "enter",
+    layout: "alt-arrows",
+    comparison: "mod-shift-c",
+  }),
+});
+
+const SETTINGS_SEND_SHORTCUTS = new Set(["enter", "mod-enter", "ctrl-enter"]);
+const SETTINGS_LAYOUT_SHORTCUTS = new Set(["alt-arrows", "mod-alt-arrows", "disabled"]);
+const SETTINGS_COMPARISON_SHORTCUTS = new Set(["mod-shift-c", "alt-c", "disabled"]);
+
+function normalizeSettings(raw) {
+  const value = raw && typeof raw === "object" ? raw : {};
+  const shortcuts = value.shortcuts && typeof value.shortcuts === "object" ? value.shortcuts : {};
+  return {
+    sendMode: ["send", "queue", "fill"].includes(value.sendMode) ? value.sendMode : DEFAULT_SETTINGS.sendMode,
+    comparisonModelId: typeof value.comparisonModelId === "string" && value.comparisonModelId.trim()
+      ? value.comparisonModelId.trim()
+      : DEFAULT_SETTINGS.comparisonModelId,
+    // The transcript starts hidden: it is a diagnostic surface, not the primary
+    // conversation, and it used to cover the composer on startup.
+    showStatusBar: value.showStatusBar === true,
+    shortcuts: {
+      send: SETTINGS_SEND_SHORTCUTS.has(shortcuts.send) ? shortcuts.send : DEFAULT_SETTINGS.shortcuts.send,
+      layout: SETTINGS_LAYOUT_SHORTCUTS.has(shortcuts.layout) ? shortcuts.layout : DEFAULT_SETTINGS.shortcuts.layout,
+      comparison: SETTINGS_COMPARISON_SHORTCUTS.has(shortcuts.comparison) ? shortcuts.comparison : DEFAULT_SETTINGS.shortcuts.comparison,
+    },
+  };
+}
+
+let appSettings = normalizeSettings(loadFromStorage(STORAGE_KEYS.settings, null));
+
+function persistSettings() {
+  saveToStorage(STORAGE_KEYS.settings, appSettings);
+}
+
+
 const storedModelOrder = loadFromStorage(STORAGE_KEYS.modelOrder, []);
 const persistedModelOrder = Array.isArray(storedModelOrder) ? storedModelOrder : [];
+let themeMode = THEME_MODES.has(loadFromStorage(STORAGE_KEYS.theme, "system"))
+  ? loadFromStorage(STORAGE_KEYS.theme, "system")
+  : "system";
+const systemThemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+const storedHiddenDefaults = loadFromStorage(STORAGE_KEYS.hiddenDefaultModels, []);
+let hiddenDefaultModelIds = new Set(
+  Array.isArray(storedHiddenDefaults)
+    ? storedHiddenDefaults.filter((id) => typeof id === "string" && DEFAULT_MODEL_IDS.has(id))
+    : [],
+);
 let currentLayout = loadFromStorage(STORAGE_KEYS.layout, "dual");
 if (!LAYOUT_PRESETS[currentLayout]) {
   currentLayout = "dual";
@@ -1079,8 +1185,25 @@ const controlPanel = document.querySelector(".control-panel");
 const sidebarToggle = document.getElementById("sidebarToggle");
 const layoutControls = document.getElementById("layoutControls");
 const layoutButtons = Array.from(layoutControls.querySelectorAll("[data-layout]"));
+const themeOptions = Array.from(document.querySelectorAll(".theme-option"));
+
+themeOptions.forEach((button) => {
+  button.addEventListener("click", () => {
+    themeMode = THEME_MODES.has(button.dataset.themeMode) ? button.dataset.themeMode : "system";
+    applyTheme({ persist: true });
+  });
+});
+
+systemThemeQuery.addEventListener("change", () => {
+  if (themeMode === "system") {
+    applyTheme();
+  }
+});
+
+applyTheme();
 const modelList = document.getElementById("modelList");
 const modelAddButton = document.getElementById("modelAddButton");
+const modelRestoreDefaultsButton = document.getElementById("modelRestoreDefaultsButton");
 const appShell = document.querySelector(".app-shell");
 const modelAddDialog = document.getElementById("modelAddDialog");
 const modelAddForm = document.getElementById("modelAddForm");
@@ -1088,16 +1211,54 @@ const modelAddNameInput = document.getElementById("modelAddName");
 const modelAddUrlInput = document.getElementById("modelAddUrl");
 const modelAddAutoSendInput = document.getElementById("modelAddAutoSend");
 const modelAddCancel = document.getElementById("modelAddCancel");
+const settingsButton = document.getElementById("settingsButton");
+const collapsedSettingsButton = document.getElementById("collapsedSettingsButton");
+const settingsDialog = document.getElementById("settingsDialog");
+const settingsForm = document.getElementById("settingsForm");
+const settingsClose = document.getElementById("settingsClose");
+const settingsCancel = document.getElementById("settingsCancel");
+const settingsReset = document.getElementById("settingsReset");
+const settingsSendShortcut = document.getElementById("settingsSendShortcut");
+const settingsLayoutShortcut = document.getElementById("settingsLayoutShortcut");
+const settingsComparisonShortcut = document.getElementById("settingsComparisonShortcut");
+const settingsSendMode = document.getElementById("settingsSendMode");
+const settingsComparisonModel = document.getElementById("settingsComparisonModel");
+const settingsShowStatus = document.getElementById("settingsShowStatus");
 const panelsContainer = document.getElementById("panelsContainer");
 const broadcastForm = document.getElementById("broadcastForm");
 const broadcastInput = document.getElementById("broadcastInput");
 const attachmentInput = document.getElementById("attachmentInput");
 const attachmentPreview = document.getElementById("attachmentPreview");
 const sendButton = document.getElementById("sendButton");
+const sendModeEl = document.getElementById("sendMode");
+const sendModeMenu = document.getElementById("sendModeMenu");
+const sendModeOptions = Array.from(document.querySelectorAll(".send-mode-option"));
+const messageQueueEl = document.getElementById("messageQueue");
+const messageQueueTitle = document.getElementById("messageQueueTitle");
+const messageQueueHint = document.getElementById("messageQueueHint");
+const messageQueueList = document.getElementById("messageQueueList");
+const queueSkipWait = document.getElementById("queueSkipWait");
+const queueClear = document.getElementById("queueClear");
 const addAttachmentBtn = document.getElementById("addAttachment");
 const recordAudioButton = document.getElementById("recordAudioButton");
 const stopRecordingButton = document.getElementById("stopRecordingButton");
 const cancelRecordingButton = document.getElementById("cancelRecordingButton");
+const broadcastStatus = document.getElementById("broadcastStatus");
+const broadcastStatusList = document.getElementById("broadcastStatusList");
+const broadcastStatusClear = document.getElementById("broadcastStatusClear");
+const comparisonButton = document.getElementById("comparisonButton");
+const comparisonDialog = document.getElementById("comparisonDialog");
+const comparisonClose = document.getElementById("comparisonClose");
+const comparisonRefresh = document.getElementById("comparisonRefresh");
+const comparisonSyncScroll = document.getElementById("comparisonSyncScroll");
+const comparisonSummarizer = document.getElementById("comparisonSummarizer");
+const comparisonSummarize = document.getElementById("comparisonSummarize");
+const comparisonStatus = document.getElementById("comparisonStatus");
+const comparisonPrompt = document.getElementById("comparisonPrompt");
+const comparisonEmpty = document.getElementById("comparisonEmpty");
+const comparisonAnswers = document.getElementById("comparisonAnswers");
+const comparisonSummary = document.getElementById("comparisonSummary");
+const comparisonSummaryText = document.getElementById("comparisonSummaryText");
 
 // 折叠工具栏元素
 const collapsedDateEl = document.getElementById("collapsedDate");
@@ -1138,15 +1299,34 @@ broadcastInput.addEventListener("paste", async (event) => {
     broadcastInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  const { approved, rejected } = await inspectSelectedAttachments(imageFiles);
-  if (rejected.length) {
-    logStatus(`为保护本地 GitHub 与凭据数据，已拒绝 ${rejected.length} 个敏感或不可验证附件`, "error");
+  // Clipboard files have no disk path, so the local-data-boundary filter cannot
+  // verify them. Persist them into Qask's own visible folder first; that gives
+  // the main process a file it owns and the user a file they can pick from a
+  // website's upload dialog.
+  let addedCount = 0;
+  let savedCount = 0;
+  let unsavedCount = 0;
+  for (const file of imageFiles) {
+    const entry = await addAttachment(file, "clipboard");
+    if (!entry) continue;
+    addedCount += 1;
+    const saved = await persistAttachmentFile(file, ATTACHMENT_KINDS.image);
+    if (!saved) {
+      attachments.delete(entry.id);
+      unsavedCount += 1;
+      continue;
+    }
+    markAttachmentSaved(entry, saved);
+    savedCount += 1;
   }
-  const entries = await Promise.all(approved.map((file) => addAttachment(file, 'clipboard')));
-  const added = entries.filter(Boolean);
-  if (added.length) {
+  if (addedCount > 0) {
     renderAttachmentPreview();
-    logStatus(`粘贴了 ${added.length} 张图片`, "info");
+  }
+  if (savedCount > 0) {
+    logStatus(`粘贴了 ${savedCount} 张图片，已保存到 ~/Pictures/Qask Attachments/，可在网站上传界面选择`, "info");
+  }
+  if (unsavedCount > 0) {
+    logStatus(`${unsavedCount} 张粘贴图片未能保存到本地文件夹，无法在网站上传界面选择`, "error");
   }
 });
 
@@ -1167,18 +1347,30 @@ let recordingGeneration = 0;
 let isBroadcasting = false;
 let draftRevision = 0;
 let pendingBroadcastTurn = null;
+const SEND_MODE_VALUES = new Set(["send", "queue", "fill"]);
+let sendModeValue = appSettings.sendMode;
+const QUEUE_LIMIT = 20;
+const QUEUE_ANSWER_POLL_MS = 1500;
+const QUEUE_ANSWER_TIMEOUT_MS = 180000;
+const QUEUE_ANSWER_STABLE_POLLS = 1;
+const QUEUE_UNREADABLE_POLLS = 3;
+let queuedMessages = [];
+let queueProcessing = false;
+let queueCurrentItem = null;
+let queueSkipWaitRequested = false;
+let queueSequence = 0;
+let queueEditingId = null;
+let queueDraggingId = null;
+let sendModeCloseTimer = null;
+let comparisonLastFocus = null;
+let comparisonAnswersState = [];
+let comparisonAnswersRefreshing = false;
+let comparisonAnswersFrozen = false;
+let comparisonSummarizing = false;
+let comparisonRefreshTimer = null;
+let comparisonSyncingScroll = false;
+let comparisonLastPrompt = "";
 const dispatchCoordinator = createDispatchCoordinator();
-
-function getAttachmentManifest() {
-  return Array.from(attachments.values()).map(({ id, file, source, kind }) => ({
-    id,
-    name: file.name,
-    type: file.type,
-    size: file.size,
-    source,
-    kind,
-  }));
-}
 
 async function inspectSelectedAttachments(files) {
   const approved = [];
@@ -1217,6 +1409,29 @@ function stopStreamTracks(stream) {
   }
 }
 
+// Chromium asks the main process again whenever the page opens another audio
+// stream, and the main process only honours an active lease. Recording can run
+// for two minutes while a lease lives for 30 s, so a live session keeps its
+// lease fresh instead of turning a device change into a bogus permission error.
+const MICROPHONE_LEASE_RENEW_INTERVAL_MS = 10_000;
+
+function startMicrophoneLeaseRenewal(session) {
+  if (!session?.leaseId || session.leaseRenewTimer) return;
+  session.leaseRenewTimer = setInterval(() => {
+    if (session.finalized) {
+      clearMicrophoneLeaseRenewal(session);
+      return;
+    }
+    window.qask?.microphone?.renewAccess?.(session.leaseId).catch(() => {});
+  }, MICROPHONE_LEASE_RENEW_INTERVAL_MS);
+}
+
+function clearMicrophoneLeaseRenewal(session) {
+  if (!session?.leaseRenewTimer) return;
+  clearInterval(session.leaseRenewTimer);
+  session.leaseRenewTimer = null;
+}
+
 function releaseMicrophoneLease(leaseId) {
   if (!leaseId) return;
   window.qask?.microphone?.releaseAccess?.(leaseId).catch(() => {});
@@ -1226,6 +1441,7 @@ function clearRecordingTimers(session) {
   if (!session) return;
   if (session.timer) clearInterval(session.timer);
   if (session.limitTimer) clearTimeout(session.limitTimer);
+  clearMicrophoneLeaseRenewal(session);
   session.timer = null;
   session.limitTimer = null;
 }
@@ -1298,6 +1514,9 @@ async function finalizeRecordingSession(session) {
   session.chunks.length = 0;
 
   if (shouldDiscard || !chunks.length) {
+    if (shouldDiscard) {
+      logStatus("已取消录音，未保留任何音频", "info");
+    }
     return;
   }
 
@@ -1309,9 +1528,24 @@ async function finalizeRecordingSession(session) {
     `Qask-${recordedAt.toISOString().replace(/[:.]/g, "-").slice(0, -5)}.${recordingExtensionForType(actualType)}`,
     { type: actualType },
   );
+  if (stopMessage) {
+    logStatus(stopMessage, "info");
+  } else {
+    logStatus("录音已停止，正在保存本地文件", "info");
+  }
   const entry = await addAttachment(file, "recording");
-  if (entry) {
+  if (!entry) {
+    return;
+  }
+  const saved = await persistAttachmentFile(file, ATTACHMENT_KINDS.audio);
+  if (saved) {
+    markAttachmentSaved(entry, saved);
     renderAttachmentPreview();
+    logStatus(`录音已保存到 ${saved.displayPath}；请在该网站的上传界面选择此文件`, "success");
+  } else {
+    attachments.delete(entry.id);
+    renderAttachmentPreview();
+    logStatus("录音未能保存到本地文件夹，无法在网站上传界面选择；请重新录制", "error");
   }
 }
 
@@ -1323,9 +1557,42 @@ async function addAttachment(file, source = "local") {
   }
 
   const id = `att-${attachmentCounter++}`;
-  const entry = { id, file, source, kind: validation.kind };
+  const entry = {
+    id,
+    file,
+    source,
+    kind: validation.kind,
+    savedFileName: null,
+    savedPathLabel: null,
+  };
   attachments.set(id, entry);
   return entry;
+}
+
+function markAttachmentSaved(entry, saved) {
+  if (!entry || !saved) return;
+  entry.savedFileName = saved.fileName;
+  entry.savedPathLabel = saved.displayPath;
+}
+
+async function persistAttachmentFile(file, kind) {
+  const persist = window.qask?.attachments?.persist;
+  if (typeof persist !== "function" || !file) {
+    return null;
+  }
+  try {
+    const buffer = await file.arrayBuffer();
+    if (!buffer || buffer.byteLength === 0) {
+      return null;
+    }
+    const result = await persist({ buffer, name: file.name, type: file.type, kind });
+    if (result?.saved !== true || typeof result.fileName !== "string") {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    return null;
+  }
 }
 
 sidebarToggle.setAttribute("aria-label", "折叠侧边栏");
@@ -1364,10 +1631,53 @@ function syncComposerState() {
   }
 }
 
+const STATUS_LOG_LIMIT = 8;
+const STATUS_LEVEL_PREFIXES = {
+  error: "[错误]",
+  warning: "[注意]",
+  success: "[完成]",
+  info: "[提示]",
+};
+
+function normalizeStatusLevel(level) {
+  return Object.hasOwn(STATUS_LEVEL_PREFIXES, level) ? level : "info";
+}
+
+// The visible transcript is the user-facing half of logStatus. Every message is
+// a Qask-owned string, so it is written with textContent only: a page-derived
+// value can never become markup here.
+function appendStatusMessage(message, level) {
+  if (!broadcastStatusList || !broadcastStatus) return;
+  const item = document.createElement("li");
+  item.dataset.level = normalizeStatusLevel(level);
+  item.textContent = String(message);
+  broadcastStatusList.appendChild(item);
+  while (broadcastStatusList.children.length > STATUS_LOG_LIMIT) {
+    broadcastStatusList.firstElementChild?.remove();
+  }
+  applyStatusBarVisibility();
+  if (!broadcastStatus.hidden) {
+    broadcastStatus.scrollTop = broadcastStatus.scrollHeight;
+  }
+}
+
+function clearStatusMessages() {
+  if (broadcastStatusList) {
+    broadcastStatusList.replaceChildren();
+  }
+  if (broadcastStatus) {
+    broadcastStatus.hidden = true;
+  }
+}
+
 function logStatus(message, level = "info") {
-  const prefix = level === "error" ? "[错误]" : level === "success" ? "[完成]" : "[提示]";
-  const method = level === "error" ? console.error : console.info;
+  const normalizedLevel = normalizeStatusLevel(level);
+  const prefix = STATUS_LEVEL_PREFIXES[normalizedLevel];
+  const method = normalizedLevel === "error"
+    ? console.error
+    : normalizedLevel === "warning" ? console.warn : console.info;
   method(`${prefix} ${message}`);
+  appendStatusMessage(message, normalizedLevel);
 }
 
 
@@ -1376,6 +1686,21 @@ function getBroadcastBlockReason() {
     return "请先停止或取消录音，再发送消息";
   }
   return "";
+}
+
+// Refocusing the composer is only polite when the composer is where the user
+// already is. A broadcast can settle seconds later, by which time the user may
+// have clicked into a panel to read an answer; yanking focus back into the
+// textarea then interrupts them mid-read.
+function restoreComposerFocusAfterBroadcast() {
+  const active = document.activeElement;
+  const composerOwnsFocus = !active || active === document.body || active === broadcastInput;
+  if (!composerOwnsFocus) return;
+  setTimeout(() => {
+    if (document.activeElement !== broadcastInput) {
+      broadcastInput.focus({ preventScroll: true });
+    }
+  }, 0);
 }
 
 function normalizeId(label) {
@@ -1455,6 +1780,99 @@ function closeModelAddDialog() {
   }
 }
 
+let settingsDialogLastFocus = null;
+
+function isSettingsDialogOpen() {
+  return !!(settingsDialog && !settingsDialog.hasAttribute("hidden"));
+}
+
+function getSettingsDialogFocusableElements() {
+  if (!settingsDialog) return [];
+  return Array.from(settingsDialog.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => !element.hasAttribute("hidden"));
+}
+
+function trapSettingsDialogFocus(event) {
+  if (!isSettingsDialogOpen() || event.key !== "Tab") return;
+  const focusable = getSettingsDialogFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function populateSettingsComparisonModels() {
+  if (!settingsComparisonModel) return;
+  const current = appSettings.comparisonModelId || "auto";
+  const options = [];
+  options.push({ value: "auto", label: "自动（优先使用第一个可用面板）" });
+  Array.from(modelRegistry.entries())
+    .filter(([, config]) => config.allowAutoSend === true)
+    .sort((a, b) => a[1].label.localeCompare(b[1].label, "zh-CN"))
+    .forEach(([id, config]) => options.push({ value: id, label: config.label }));
+  settingsComparisonModel.replaceChildren();
+  options.forEach(({ value, label }) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    settingsComparisonModel.appendChild(option);
+  });
+  settingsComparisonModel.value = options.some((option) => option.value === current) ? current : "auto";
+}
+
+function applyStatusBarVisibility() {
+  if (!broadcastStatus) return;
+  const hasMessages = Boolean(broadcastStatusList?.children.length);
+  broadcastStatus.hidden = !appSettings.showStatusBar || !hasMessages;
+}
+
+function openSettingsDialog() {
+  if (!settingsDialog) return;
+  if (isModelAddDialogOpen() || isComparisonDialogOpen()) return;
+  settingsDialogLastFocus = document.activeElement;
+  appShell?.setAttribute("inert", "");
+  settingsSendShortcut.value = appSettings.shortcuts.send;
+  settingsLayoutShortcut.value = appSettings.shortcuts.layout;
+  settingsComparisonShortcut.value = appSettings.shortcuts.comparison;
+  settingsSendMode.value = appSettings.sendMode;
+  if (settingsShowStatus) settingsShowStatus.checked = appSettings.showStatusBar;
+  populateSettingsComparisonModels();
+  settingsDialog.removeAttribute("hidden");
+  settingsDialog.removeAttribute("aria-hidden");
+  setTimeout(() => {
+    settingsSendShortcut?.focus();
+  }, 0);
+}
+
+function closeSettingsDialog({ restoreFocus = true } = {}) {
+  if (!settingsDialog) return;
+  settingsDialog.setAttribute("hidden", "");
+  settingsDialog.setAttribute("aria-hidden", "true");
+  appShell?.removeAttribute("inert");
+  if (restoreFocus && settingsDialogLastFocus instanceof HTMLElement) {
+    settingsDialogLastFocus.focus();
+  }
+}
+
+function resetSettingsForm() {
+  settingsSendShortcut.value = DEFAULT_SETTINGS.shortcuts.send;
+  settingsLayoutShortcut.value = DEFAULT_SETTINGS.shortcuts.layout;
+  settingsComparisonShortcut.value = DEFAULT_SETTINGS.shortcuts.comparison;
+  settingsSendMode.value = DEFAULT_SETTINGS.sendMode;
+  settingsShowStatus.checked = DEFAULT_SETTINGS.showStatusBar;
+  if (settingsComparisonModel) settingsComparisonModel.value = "auto";
+}
+
 function isRestrictedCustomProviderUrl(url) {
   let parsedUrl;
   try {
@@ -1497,23 +1915,51 @@ function getAllowedOrigins(model) {
   return Array.from(new Set([primaryOrigin, ...configuredOrigins].filter((origin) => isTrustedGuestUrl(origin, [origin]))));
 }
 
+// Auth origins are needed for navigation (login redirects) but must never be
+// targets for prompt injection. The navigation allowlist stays in main.js; this
+// is the smaller renderer-side injection allowlist.
+const AUTH_ONLY_ORIGINS = new Set([
+  "https://auth.openai.com",
+  "https://accounts.google.com",
+  "https://login.microsoftonline.com",
+  "https://login.live.com",
+]);
+
+function getInjectableOrigins(model) {
+  return getAllowedOrigins(model).filter((origin) => !AUTH_ONLY_ORIGINS.has(origin));
+}
+
 function registerModel(model, { replace = false } = {}) {
+  if (!model || typeof model.id !== "string" || !model.id.trim() || model.id.length > 120) {
+    return false;
+  }
   if (!replace && modelRegistry.has(model.id)) {
     logStatus(`${model.label} 已存在`, "error");
     return false;
   }
-  if (model.origin !== "default" && isRestrictedCustomProviderUrl(model.url)) {
-    logStatus("不能将 GitHub 站点注册为 AI 模型，以保护本地 GitHub 信息", "error");
-    return false;
+  const origin = model.origin || "custom";
+  if (origin !== "default") {
+    // A stored custom entry must never shadow a built-in adapter or reuse its
+    // partition; ids come from normalizeId() and are re-validated on load.
+    if (DEFAULT_MODEL_IDS.has(model.id) || !/^[a-z0-9\u4e00-\u9fa5-]+$/i.test(model.id)) {
+      logStatus("自定义模型条目无效，已忽略", "error");
+      return false;
+    }
+    if (isRestrictedCustomProviderUrl(model.url)) {
+      logStatus("不能将 GitHub 站点注册为 AI 模型，以保护本地 GitHub 信息", "error");
+      return false;
+    }
   }
   const normalized = {
     ...model,
-    origin: model.origin || "custom",
+    origin,
+    partition: origin === "default" ? model.partition : `persist:${model.id}`,
     composeMessageScript: model.composeMessageScript || buildGenericScript,
-    allowAutoSend: model.origin === "default" || Boolean(model.allowAutoSend),
+    allowAutoSend: origin === "default" || Boolean(model.allowAutoSend),
   };
   normalized.allowedOrigins = getAllowedOrigins(normalized);
-  if (!normalized.allowedOrigins.length) {
+  normalized.injectableOrigins = getInjectableOrigins(normalized);
+  if (!normalized.allowedOrigins.length || !normalized.injectableOrigins.length) {
     logStatus(`${model.label} 的网站地址无效`, "error");
     return false;
   }
@@ -1533,7 +1979,14 @@ function removeModel(modelId) {
   if (!modelRegistry.has(modelId)) {
     return;
   }
-  const label = modelRegistry.get(modelId)?.label ?? modelId;
+  const model = modelRegistry.get(modelId);
+  const label = model?.label ?? modelId;
+  if (model?.origin === "default") {
+    // Built-ins are re-registered at startup, so remember the removal and skip
+    // it next launch; the restore button can bring it back without losing data.
+    hiddenDefaultModelIds.add(modelId);
+    persistHiddenDefaultModels();
+  }
   modelRegistry.delete(modelId);
   syncModelOrder();
   persistModelOrder();
@@ -1546,6 +1999,38 @@ function removeModel(modelId) {
   persistCustomModels();
   reconcileActivePanelsToModelOrder();
   logStatus(`${label} 已移除`, "info");
+}
+
+function restoreDefaultModels() {
+  const restoredIds = [];
+  DEFAULT_MODELS.forEach((model) => {
+    if (!hiddenDefaultModelIds.has(model.id)) {
+      return;
+    }
+    if (registerModel(model, { replace: true })) {
+      restoredIds.push(model.id);
+    }
+    hiddenDefaultModelIds.delete(model.id);
+  });
+  if (!restoredIds.length) {
+    persistHiddenDefaultModels();
+    refreshModelList();
+    logStatus("没有需要恢复的默认网站", "info");
+    return;
+  }
+  persistHiddenDefaultModels();
+  modelOrder = normalizeModelOrder([...modelOrder, ...restoredIds], Array.from(modelRegistry.keys()));
+  persistModelOrder();
+  reconcileActivePanelsToModelOrder();
+  refreshModelList();
+  logStatus(`已恢复 ${restoredIds.length} 个默认网站`, "success");
+}
+
+function syncDefaultRestoreButton() {
+  if (!modelRestoreDefaultsButton) return;
+  const count = hiddenDefaultModelIds.size;
+  modelRestoreDefaultsButton.hidden = count === 0;
+  modelRestoreDefaultsButton.textContent = count > 0 ? `恢复默认网站（${count}）` : "恢复默认网站";
 }
 
 function getModelOptions() {
@@ -1584,6 +2069,7 @@ function cancelKeyboardModelDrag() {
     modelOrder = normalizeModelOrder(originalOrder, Array.from(modelRegistry.keys()));
     persistModelOrder();
     reconcileActivePanelsToModelOrder();
+    getModelDragHandle(movedModelId)?.focus();
     const label = modelRegistry.get(movedModelId)?.label ?? movedModelId;
     setModelOrderStatus(`已取消 ${label} 的键盘排序，已恢复原位置。`);
     return;
@@ -1607,6 +2093,12 @@ function commitModelOrder(nextOrder, movedModelId) {
   setModelOrderStatus(`已将 ${label} 调整为第 ${rank} 位，当前布局已更新。`);
 }
 
+function getModelDragHandle(modelId) {
+  const item = Array.from(modelList.querySelectorAll("li[data-model-id]"))
+    .find((candidate) => candidate.dataset.modelId === modelId);
+  return item?.querySelector(".model-drag-handle") || null;
+}
+
 function refreshModelList() {
   modelList.innerHTML = "";
   const activeModelIds = new Set(getRankedModelIds(modelOrder, activePanelCount));
@@ -1619,11 +2111,19 @@ function refreshModelList() {
     dragHandle.type = "button";
     dragHandle.className = "model-drag-handle";
     dragHandle.draggable = true;
-    dragHandle.textContent = "⠿";
+    dragHandle.innerHTML = `<svg viewBox="0 0 12 16" width="12" height="16" aria-hidden="true" focusable="false">
+      <g fill="currentColor">
+        <circle cx="3" cy="3" r="1.15"/><circle cx="9" cy="3" r="1.15"/>
+        <circle cx="3" cy="8" r="1.15"/><circle cx="9" cy="8" r="1.15"/>
+        <circle cx="3" cy="13" r="1.15"/><circle cx="9" cy="13" r="1.15"/>
+      </g>
+    </svg>`;
     dragHandle.setAttribute("aria-label", `拖动排序 ${model.label}`);
     dragHandle.title = "拖动排序";
     dragHandle.setAttribute("aria-pressed", "false");
     dragHandle.addEventListener("dragstart", (event) => {
+      keyboardDraggedModelId = null;
+      keyboardDraggedOriginalOrder = null;
       draggedModelId = model.id;
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("application/x-qask-model-id", model.id);
@@ -1637,8 +2137,7 @@ function refreshModelList() {
         keyboardDraggedModelId = isDropping ? null : model.id;
         keyboardDraggedOriginalOrder = isDropping ? null : [...modelOrder];
         refreshModelList();
-        const selectedHandle = modelList.querySelector(`[data-model-id="${model.id}"] .model-drag-handle`);
-        selectedHandle?.focus();
+        getModelDragHandle(model.id)?.focus();
         setModelOrderStatus(keyboardDraggedModelId
           ? `已选中 ${model.label}。使用上下方向键调整位置，按 Escape 取消。`
           : `已放下 ${model.label}。`);
@@ -1659,8 +2158,7 @@ function refreshModelList() {
       commitModelOrder(moveModelOrder(modelOrder, model.id, targetIndex), model.id);
       keyboardDraggedModelId = model.id;
       refreshModelList();
-      const nextHandle = modelList.querySelector(`[data-model-id="${model.id}"] .model-drag-handle`);
-      nextHandle?.focus();
+      getModelDragHandle(model.id)?.focus();
     });
 
     const label = document.createElement("span");
@@ -1681,6 +2179,7 @@ function refreshModelList() {
     }
     modelList.appendChild(item);
   });
+  syncDefaultRestoreButton();
 }
 
 modelList.addEventListener("dragover", (event) => {
@@ -1727,19 +2226,80 @@ function createPanel(index) {
   const viewWrapper = document.createElement("div");
   viewWrapper.className = "panel-webview-wrapper";
 
-  root.append(viewWrapper);
+  const siteChip = document.createElement("span");
+  siteChip.className = "panel-site-chip";
+  siteChip.hidden = true;
+  siteChip.setAttribute("aria-hidden", "true");
+
+  const stateOverlay = document.createElement("div");
+  stateOverlay.className = "panel-state-overlay";
+  stateOverlay.hidden = true;
+  stateOverlay.setAttribute("role", "status");
+  stateOverlay.setAttribute("aria-live", "polite");
+  const stateText = document.createElement("p");
+  stateText.className = "panel-state-text";
+  const reloadButton = document.createElement("button");
+  reloadButton.type = "button";
+  reloadButton.className = "panel-state-reload";
+  reloadButton.textContent = "重新加载";
+  reloadButton.setAttribute("aria-label", "重新加载此面板");
+  stateOverlay.append(stateText, reloadButton);
+
+  root.append(viewWrapper, siteChip, stateOverlay);
 
   const panelState = {
     id: `panel-${index}`,
     root,
     viewWrapper,
+    siteChip,
+    stateOverlay,
+    stateText,
+    reloadButton,
     webview: null,
     modelId: null,
     ready: false,
     loadState: PANEL_LOAD_STATES.loading,
     zoomFactor: getAutomaticPanelZoom(currentLayout),
   };
+  reloadButton.addEventListener("click", () => reloadPanel(panelState));
   return panelState;
+}
+
+function showPanelStateOverlay(panelState, message, { reloadable = true } = {}) {
+  if (!panelState?.stateOverlay) return;
+  panelState.stateText.textContent = message;
+  panelState.reloadButton.hidden = !reloadable;
+  panelState.stateOverlay.hidden = false;
+}
+
+function hidePanelStateOverlay(panelState) {
+  if (!panelState?.stateOverlay) return;
+  panelState.stateOverlay.hidden = true;
+}
+
+// A failed or crashed guest has no in-page recovery affordance; the user needs
+// one host-side action. Reload keeps the panel's session partition, so logins
+// survive the retry.
+function reloadPanel(panelState) {
+  if (!panelState) return;
+  const webview = panelState.webview;
+  hidePanelStateOverlay(panelState);
+  if (!webview) {
+    if (panelState.modelId) {
+      loadModel(panelState, panelState.modelId);
+    }
+    return;
+  }
+  dispatchCoordinator.reset(webview);
+  updatePanelLoadState(panelState, "start");
+  logStatus(`${getPanelLabel(panelState)} 正在重新加载`, "info");
+  try {
+    webview.reload();
+  } catch (error) {
+    if (panelState.modelId) {
+      loadModel(panelState, panelState.modelId);
+    }
+  }
 }
 
 function applyPanelZoom(panelState) {
@@ -1766,6 +2326,13 @@ function syncAutomaticPanelZoom() {
 function swapWebview(panelState, newWebview) {
   if (panelState.webview) {
     panelState.webview.remove();
+  }
+  if (!newWebview) {
+    panelState.root.removeAttribute("aria-label");
+    if (panelState.siteChip) {
+      panelState.siteChip.hidden = true;
+      panelState.siteChip.textContent = "";
+    }
   }
   panelState.webview = newWebview;
   updatePanelLoadState(panelState, "start");
@@ -1815,6 +2382,7 @@ function loadModel(panelState, modelId) {
 
   const webview = document.createElement("webview");
   webview.className = "model-view";
+  webview.setAttribute("aria-label", `${config.label} 网页面板`);
   webview.setAttribute("partition", config.partition || `persist:${modelId}`);
   webview.style.width = "100%";
   webview.style.height = "100%";
@@ -1842,6 +2410,7 @@ function loadModel(panelState, modelId) {
     if (panelState.webview !== webview) {
       return;
     }
+    hidePanelStateOverlay(panelState);
     const previousLoadState = panelState.loadState;
     updatePanelLoadState(panelState, "ready");
     traceLifecycle("dom-ready");
@@ -1851,7 +2420,7 @@ function loadModel(panelState, modelId) {
     }
     logStatus(`${config.label} 已就绪，可以填充内容`, "success");
     const currentUrl = webview.getURL?.() || "";
-    if (!isTrustedGuestUrl(currentUrl, config.allowedOrigins || [])) {
+    if (!isTrustedGuestUrl(currentUrl, config.injectableOrigins || [])) {
       return;
     }
     webview.insertCSS(`
@@ -1876,6 +2445,9 @@ function loadModel(panelState, modelId) {
   webview.addEventListener("did-start-navigation", (event) => {
     if (panelState.webview !== webview) return;
     if (!event.isMainFrame || event.isInPlace) return;
+    // A new document cannot still be running a script injected into the old one.
+    dispatchCoordinator.reset(webview);
+    hidePanelStateOverlay(panelState);
     updatePanelLoadState(panelState, "start");
     traceLifecycle("did-start-navigation");
   });
@@ -1887,6 +2459,7 @@ function loadModel(panelState, modelId) {
 
   webview.addEventListener("did-finish-load", () => {
     if (panelState.webview !== webview) return;
+    hidePanelStateOverlay(panelState);
     updatePanelLoadState(panelState, "ready");
     traceLifecycle("did-finish-load");
     applyPanelZoom(panelState);
@@ -1902,10 +2475,30 @@ function loadModel(panelState, modelId) {
     // has already become ready for a newer document.
     if (panelState.loadState !== PANEL_LOAD_STATES.loading) return;
     updatePanelLoadState(panelState, "fail");
+    dispatchCoordinator.reset(webview);
     traceLifecycle("did-fail-load", { errorCode: event.errorCode });
+    showPanelStateOverlay(panelState, `${config.label} 加载失败，请检查网络后重新加载`);
     logStatus(`${config.label} 加载失败，请检查网络`, "error");
   });
 
+  // WebviewDocumentEvents render-process-gone is the guest-renderer equivalent
+  // of a tab crash: without this the panel would stay "ready" forever.
+  webview.addEventListener("render-process-gone", (event) => {
+    if (panelState.webview !== webview) return;
+    const reason = event?.details?.reason || "unknown";
+    dispatchCoordinator.reset(webview);
+    updatePanelLoadState(panelState, "fail");
+    showPanelStateOverlay(panelState, `${config.label} 页面进程已退出（${reason}），可重新加载`);
+    traceLifecycle("render-process-gone", { reason });
+    logStatus(`${config.label} 页面进程已退出，请重新加载面板`, "error");
+  });
+
+  hidePanelStateOverlay(panelState);
+  panelState.root.setAttribute("aria-label", `${config.label} 网页面板`);
+  if (panelState.siteChip) {
+    panelState.siteChip.textContent = config.label;
+    panelState.siteChip.hidden = false;
+  }
   swapWebview(panelState, webview);
   panelState.modelId = modelId;
 }
@@ -2006,38 +2599,74 @@ function getPanelLabel(panelState) {
   return modelRegistry.get(panelState.modelId)?.label ?? panelState.modelId;
 }
 
-async function dispatchMessage(panelState, text, attachmentManifest = []) {
+function buildManualAttachmentReport(attachmentManifest = []) {
+  return {
+    requested: attachmentManifest.length,
+    assigned: 0,
+    confirmed: 0,
+    unverified: [],
+    manualRequired: attachmentManifest.map((item) => ({ id: item.id, name: item.name, reason: "manual-required" })),
+  };
+}
+
+// The failure *message* stays the fixed local string the project guarantees: no
+// text a page could influence is ever reflected into a log. The actionable part
+// is derived only from local state (which adapter the shell chose), so a user
+// still learns whether to expect a site redesign or a plain generic failure.
+function buildDispatchFailureHint(usingFallback) {
+  return usingFallback
+    ? "该面板使用通用策略：请确认页面已加载完成，必要时重新加载面板后再试"
+    : "该网站的结构可能已改版，或页面尚未加载完成；请切换到该面板确认状态";
+}
+
+async function dispatchMessage(panelState, text, attachmentManifest = [], { fillOnly = false } = {}) {
   if (!panelState.modelId) {
-    return { panel: getPanelLabel(panelState), status: "error", message: "未选择模型" };
+    return { panel: getPanelLabel(panelState), status: BROADCAST_STATUS.error, message: "未选择模型" };
   }
   if (!panelState.webview) {
-    return { panel: getPanelLabel(panelState), status: "error", message: "窗口尚未加载" };
+    return { panel: getPanelLabel(panelState), status: BROADCAST_STATUS.error, message: "窗口尚未加载" };
   }
   if (!panelState.ready) {
-    return { panel: getPanelLabel(panelState), status: "error", message: "请等待页面加载完成" };
-  }
-  if (dispatchCoordinator.isBusy(panelState.webview)) {
-    return { panel: getPanelLabel(panelState), status: "error", message: "上一轮消息仍在该网页中处理" };
+    return { panel: getPanelLabel(panelState), status: BROADCAST_STATUS.error, message: "请等待页面加载完成" };
   }
 
   const config = modelRegistry.get(panelState.modelId);
   if (!config) {
-    return { panel: getPanelLabel(panelState), status: "error", message: "模型配置不可用", attachments: { requested: attachmentManifest.length, confirmed: 0 } };
+    return { panel: getPanelLabel(panelState), status: BROADCAST_STATUS.error, message: "模型配置不可用", attachments: { requested: attachmentManifest.length, confirmed: 0 } };
   }
-  const currentUrl = panelState.webview.getURL?.() || "";
-  if (!isTrustedGuestUrl(currentUrl, config.allowedOrigins || [])) {
+
+  // Checked after the config lookup so the message can name the panel the user
+  // needs to wait for, and can say how long it has been working.
+  if (dispatchCoordinator.isBusy(panelState.webview)) {
+    const busySeconds = Math.round(dispatchCoordinator.busyForMs(panelState.webview) / 1000);
     return {
       panel: config.label,
-      status: "error",
-      message: "网页已跳转到未验证来源；为保护附件已取消发送",
+      status: BROADCAST_STATUS.pending,
+      message: busySeconds > 0
+        ? `${config.label} 仍在处理上一条消息（已 ${busySeconds} 秒）；本面板未重发，以免出现重复提问`
+        : `${config.label} 仍在处理上一条消息；本面板未重发，以免出现重复提问`,
+    };
+  }
+
+  const currentUrl = panelState.webview.getURL?.() || "";
+  if (!isTrustedGuestUrl(currentUrl, config.injectableOrigins || [])) {
+    return {
+      panel: config.label,
+      status: BROADCAST_STATUS.error,
+      message: "网页已跳转到未验证来源；为保护内容已取消发送",
       attachments: { requested: attachmentManifest.length, confirmed: 0, unverified: [], manualRequired: [] },
     };
   }
+
   const hasAttachments = attachmentManifest.length > 0;
+  // Documented boundary (docs/architecture.md): while any attachment is queued,
+  // Qask runs no guest script at all, so a page can never be filled or sent in a
+  // way that implies the file was delivered. The user uploads in each site's own
+  // visible control. Changing this is a product decision, not a bug fix.
   if (hasAttachments) {
     return {
       panel: config.label,
-      status: "partial",
+      status: BROADCAST_STATUS.partial,
       message: `${config.label} 的附件仍保留在本地；请在该网页中手动选择并上传后再发送`,
       autoSent: false,
       attemptedAutoSend: false,
@@ -2052,8 +2681,8 @@ async function dispatchMessage(panelState, text, attachmentManifest = []) {
   }
   const usingFallback = (config.composeMessageScript === buildGenericScript);
   const script = buildOriginGuardedScript(
-    (config.composeMessageScript || buildGenericScript)(text, config.allowAutoSend ? true : false, []),
-    config.allowedOrigins || [],
+    (config.composeMessageScript || buildGenericScript)(text, config.allowAutoSend && !fillOnly ? true : false, []),
+    config.injectableOrigins || [],
   );
 
   try {
@@ -2062,46 +2691,100 @@ async function dispatchMessage(panelState, text, attachmentManifest = []) {
       () => panelState.webview.executeJavaScript(script, true),
     );
     if (result?.skipped) {
-      return { panel: config.label, status: "error", message: "上一轮消息仍在该网页中处理" };
+      return {
+        panel: config.label,
+        status: BROADCAST_STATUS.pending,
+        message: `${config.label} 仍在处理上一条消息；本面板未重发，以免出现重复提问`,
+      };
     }
     if (result && result.success) {
       const autoSentText = result.autoSent ? "已尝试触发网页发送" : "已填充输入框";
-      const attachmentReport = result.attachmentReport || { requested: 0, assigned: 0, confirmed: 0, unverified: [], manualRequired: [] };
-      const status = hasAttachments ? getAttachmentDispatchStatus(attachmentReport) : "success";
-      const attachmentMessage = attachmentReport.assigned > 0
-        ? `${config.label} 已填入文字并尝试附加 ${attachmentReport.assigned}/${attachmentReport.requested} 个文件；请在网页中确认附件后手动发送`
-        : `${config.label} 未能自动附加文件；请使用该网页自己的上传操作`;
+      const sendControlHint = result.sendControlDisabled === true
+        ? "（发送按钮仍不可用，请在该网页手动发送）"
+        : "";
       return {
         panel: config.label,
-        status,
-        message: hasAttachments
-          ? attachmentMessage
-          : `${config.label} ${autoSentText}${usingFallback ? " (通用策略)" : ""}`,
+        status: BROADCAST_STATUS.success,
+        message: `${config.label} ${autoSentText}${sendControlHint}${usingFallback ? " (通用策略)" : ""}`,
         autoSent: result.autoSent === true,
         attemptedAutoSend: result.autoSent === true,
-        attachments: attachmentReport,
       };
     }
     return {
       panel: config.label,
-      status: "error",
+      status: BROADCAST_STATUS.error,
       message: `网页操作失败${usingFallback ? " (通用策略)" : ""}`,
-      attachments: result?.attachmentReport || { requested: attachmentManifest.length, confirmed: 0, unverified: [], manualRequired: [] },
+      hint: buildDispatchFailureHint(usingFallback),
+      attachments: buildManualAttachmentReport(attachmentManifest),
     };
   } catch (error) {
     return {
       panel: config.label,
-      status: "error",
+      status: BROADCAST_STATUS.error,
       message: `网页操作失败${usingFallback ? " (通用策略)" : ""}`,
-      attachments: { requested: attachmentManifest.length, confirmed: 0, unverified: [], manualRequired: [] },
+      hint: buildDispatchFailureHint(usingFallback),
+      attachments: buildManualAttachmentReport(attachmentManifest),
     };
   }
 }
 
+function getResultStatusLevel(result) {
+  if (result?.status === BROADCAST_STATUS.error) {
+    // A watchdog expiry means "unconfirmed", not "the site refused".
+    return isTimedOutResult(result) ? "warning" : "error";
+  }
+  if (result?.status === BROADCAST_STATUS.success) return "success";
+  if (result?.status === BROADCAST_STATUS.partial
+    || result?.status === BROADCAST_STATUS.pending) return "warning";
+  return "info";
+}
+
 function presentResults(results) {
   results.forEach((entry) => {
-    logStatus(`${entry.panel}: ${entry.message}`, entry.status);
+    logStatus(`${entry.panel}: ${entry.message}`, getResultStatusLevel(entry));
+    if (entry.status === BROADCAST_STATUS.error && entry.hint) {
+      logStatus(`${entry.panel}: ${entry.hint}`, "info");
+    }
   });
+}
+
+function logBroadcastSummary(results) {
+  // Every recipient must be accounted for: a round where every panel came
+  // back "partial" (attachments) previously logged no summary at all, leaving
+  // the user unable to tell what happened to the other six sites. A watchdog
+  // expiry is also reported as unconfirmed rather than as a failure.
+  const summary = summarizeBroadcastResults(results);
+  const attemptedCount = summary.attemptedAutoSend;
+  const filledCount = summary.filled;
+  const attachmentCount = summary.attachmentOnly;
+  const pendingCount = summary.pending;
+  const timedOutCount = summary.timedOut;
+  const errorCount = summary.failed;
+
+  if (attemptedCount > 0) {
+    logStatus(`已尝试触发 ${attemptedCount} 个网页发送`, "success");
+  }
+  if (filledCount > 0) {
+    logStatus(`已填充 ${filledCount} 个网页输入框，请在网页中确认发送`, "info");
+  }
+  if (attachmentCount > 0) {
+    logStatus(`${attachmentCount} 个面板保留附件：请在各自网页手动上传后再发送`, "info");
+  }
+  if (timedOutCount > 0) {
+    logStatus(`${timedOutCount} 个面板等待超时，尚未确认是否已发送；请稍候再试`, "info");
+  }
+  if (pendingCount > 0) {
+    logStatus(`${pendingCount} 个面板仍在处理上一条消息，本轮已跳过`, "info");
+  }
+  if (errorCount > 0) {
+    logStatus(`${errorCount} 个模型发送失败`, "error");
+  }
+  if (summary.total > 0) {
+    logStatus(
+      `本轮共 ${summary.total} 个面板：已尝试发送 ${attemptedCount} · 已填充 ${filledCount} · 待确认超时 ${timedOutCount} · 处理中跳过 ${pendingCount} · 需手动传附件 ${attachmentCount} · 失败 ${errorCount}`,
+      errorCount > 0 ? "error" : "info",
+    );
+  }
 }
 
 function formatBytes(size) {
@@ -2128,6 +2811,32 @@ function renderAttachmentPreview() {
     nameSpan.textContent = item.file.name;
     const sizeSmall = document.createElement("small");
     sizeSmall.textContent = formatBytes(item.file.size);
+    const savedSmall = document.createElement("small");
+    savedSmall.className = "attachment-saved";
+    if (item.savedPathLabel) {
+      savedSmall.textContent = "已保存";
+    } else if (item.source === "local") {
+      savedSmall.textContent = "磁盘文件";
+    } else {
+      savedSmall.textContent = "仅本地";
+    }
+    savedSmall.title = item.savedPathLabel
+      ? `已保存到 ${item.savedPathLabel}`
+      : item.source === "local"
+        ? "该附件来自你选择的磁盘文件，可在网站上传界面重新选择"
+        : "该附件没有可用的磁盘文件；录音/粘贴的附件只有在保存成功后才能在网站上传界面选择";
+    const controls = [];
+    if (item.savedFileName) {
+      const revealButton = document.createElement("button");
+      revealButton.type = "button";
+      revealButton.dataset.attachmentAction = "reveal";
+      revealButton.dataset.savedName = item.savedFileName;
+      revealButton.textContent = "显示";
+      revealButton.disabled = false;
+      revealButton.setAttribute("aria-label", `在 Finder 中显示 ${item.file.name}`);
+      revealButton.title = `在 Finder 中显示 ${item.savedPathLabel || ""}`.trim();
+      controls.push(revealButton);
+    }
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.dataset.attachmentId = id;
@@ -2135,10 +2844,28 @@ function renderAttachmentPreview() {
     removeButton.disabled = isBroadcasting;
     removeButton.setAttribute("aria-label", `移除 ${item.file.name}`);
     removeButton.title = `移除 ${item.file.name}`;
+    controls.push(removeButton);
 
-    li.append(kindSpan, nameSpan, sizeSmall, removeButton);
+    li.title = item.savedPathLabel ? `已保存到 ${item.savedPathLabel}` : "";
+    li.append(kindSpan, nameSpan, sizeSmall, savedSmall, ...controls);
     attachmentPreview.appendChild(li);
   });
+  // Attachments deliberately never clear themselves (a page's DOM cannot prove
+  // an upload happened), so give the user one obvious way out of the queue
+  // instead of making them remove a broadcast's worth of files one by one.
+  if (attachments.size > 1) {
+    const clearItem = document.createElement("li");
+    clearItem.className = "attachment-clear-all";
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.dataset.attachmentAction = "clear-all";
+    clearButton.textContent = `清空全部 ${attachments.size} 个附件`;
+    clearButton.disabled = isBroadcasting;
+    clearButton.setAttribute("aria-label", "清空全部本地附件");
+    clearButton.title = "清空全部本地附件（附件不会上传到任何网站）";
+    clearItem.appendChild(clearButton);
+    attachmentPreview.appendChild(clearItem);
+  }
   syncComposerState();
 }
 
@@ -2210,6 +2937,8 @@ async function startAudioRecording() {
     recorder.start(500);
     recordingStartPending = false;
     setRecordingControls(true);
+    logStatus("正在录音（最长 2 分钟）；点击停止或取消结束", "info");
+    startMicrophoneLeaseRenewal(session);
     session.limitTimer = setTimeout(() => {
       requestRecordingStopForSession(session, { message: "录音达到 2 分钟上限，已停止" });
     }, ATTACHMENT_LIMITS.maxRecordingDurationMs);
@@ -2280,8 +3009,20 @@ attachmentInput.addEventListener("change", async (event) => {
 });
 
 attachmentPreview.addEventListener("click", (event) => {
-  if (isBroadcasting) return;
   if (!(event.target instanceof HTMLButtonElement)) {
+    return;
+  }
+  if (event.target.dataset.attachmentAction === "reveal") {
+    const savedName = event.target.dataset.savedName;
+    if (savedName) {
+      window.qask?.attachments?.reveal?.(savedName).catch(() => {});
+    }
+    return;
+  }
+  if (isBroadcasting) return;
+  if (event.target.dataset.attachmentAction === "clear-all") {
+    clearAttachments();
+    logStatus("已清空本地附件", "info");
     return;
   }
   const id = event.target.dataset.attachmentId;
@@ -2292,6 +3033,1212 @@ attachmentPreview.addEventListener("click", (event) => {
   renderAttachmentPreview();
   logStatus("附件已移除", "info");
 });
+
+broadcastStatusClear?.addEventListener("click", () => {
+  clearStatusMessages();
+});
+
+const RESPONSE_SELECTORS = {
+  chatgpt: ['[data-message-author-role="assistant"]'],
+  gemini: ['model-response', 'message-content', '.model-response-text'],
+  doubao: ['[data-testid="message_text_content"]', '[class*="message-content"]'],
+  claude: ['.font-claude-message', '[data-testid="assistant-message"]'],
+  copilot: ['[data-content="ai-message"]', '[class*="ac-textBlock"]'],
+  deepseek: ['.ds-markdown'],
+  kimi: ['.chat-content-item-assistant .markdown', '.segment-assistant .markdown', '.markdown'],
+};
+const COMPARISON_MAX_ANSWER_CHARS = 20000;
+const COMPARISON_SUMMARY_INPUT_CHARS = 4000;
+const COMPARISON_REFRESH_INTERVAL_MS = 4000;
+const COMPARISON_SUMMARY_POLL_MS = 2500;
+const COMPARISON_SUMMARY_TIMEOUT_MS = 90000;
+
+// Read the visible answer text from a provider page. Every site is different, so
+// this is a best-effort last-message heuristic: provider-specific containers
+// first, then generic assistant/markdown containers. It never touches the
+// composer and it runs only after the host has verified the current origin.
+function buildExtractAnswerScript(modelId) {
+  const selectors = JSON.stringify(RESPONSE_SELECTORS[modelId] || []);
+  return `(() => {
+    const visible = (el) => Boolean(el && el.getClientRects().length > 0);
+    const usable = (el) => {
+      if (!visible(el)) return false;
+      if (el.closest('textarea, input, [contenteditable="true"]')) return false;
+      if (el.closest('aside, nav, header, [role="navigation"]')) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width >= 160 && rect.height >= 12;
+    };
+    const candidates = [];
+    const collect = (selector, priority) => {
+      let nodes = [];
+      try { nodes = Array.from(document.querySelectorAll(selector)); } catch (error) { return; }
+      for (const node of nodes) {
+        if (!usable(node)) continue;
+        const text = String(node.innerText || '').trim();
+        if (text.length < 20) continue;
+        candidates.push({ node, text, priority });
+      }
+    };
+    ${selectors}.forEach((selector) => collect(selector, 1));
+    if (!candidates.length) {
+      [
+        '[data-message-author-role="assistant"]',
+        '[data-testid*="assistant" i]',
+        '[class*="assistant" i]',
+        '[class*="markdown" i]',
+        'article'
+      ].forEach((selector) => collect(selector, 0));
+    }
+    if (!candidates.length) {
+      return { ok: false, reason: '未找到回答区域' };
+    }
+    candidates.sort((left, right) => {
+      if (left.priority !== right.priority) return left.priority - right.priority;
+      return left.node.compareDocumentPosition(right.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+    const best = candidates[candidates.length - 1];
+    return { ok: true, text: best.text.slice(-${COMPARISON_MAX_ANSWER_CHARS}), candidates: candidates.length };
+  })()`;
+}
+
+function getSynchronizedScrollTop(sourceScrollTop, sourceScrollHeight, sourceClientHeight, targetScrollHeight, targetClientHeight) {
+  const sourceMax = Math.max(0, sourceScrollHeight - sourceClientHeight);
+  const targetMax = Math.max(0, targetScrollHeight - targetClientHeight);
+  if (sourceMax <= 0 || targetMax <= 0) return 0;
+  const ratio = Math.min(1, Math.max(0, sourceScrollTop / sourceMax));
+  return Math.round(ratio * targetMax);
+}
+
+function buildDifferenceSummaryPrompt(answers, promptText = "") {
+  const usable = (Array.isArray(answers) ? answers : [])
+    .filter((answer) => answer?.ok && String(answer.text || "").trim())
+    .slice(0, 4);
+  if (usable.length < 2) {
+    return null;
+  }
+  const lines = [
+    "你是一个严谨的 AI 回答对比助手。下面是多个模型对同一问题的回答，请用中文简洁总结它们的差异，不要复述原文，不要编造未出现的信息。",
+    "",
+  ];
+  if (promptText) {
+    lines.push("【问题】", String(promptText).slice(0, 2000), "");
+  }
+  usable.forEach((answer, index) => {
+    lines.push(
+      `【回答 ${index + 1}｜${answer.label}】`,
+      String(answer.text).slice(0, COMPARISON_SUMMARY_INPUT_CHARS),
+      "",
+    );
+  });
+  lines.push(
+    "请按以下结构输出：",
+    "1. 共识：这些回答一致的地方；",
+    "2. 关键差异：结论、事实、侧重点或建议上的不同；",
+    "3. 各自优劣：每个回答更擅长/更薄弱的地方；",
+    "4. 一句结论：如果只能选一个，为什么。",
+  );
+  return lines.join("\n");
+}
+
+function setComparisonStatus(message, level = "info") {
+  if (!comparisonStatus) return;
+  comparisonStatus.textContent = message;
+  comparisonStatus.dataset.level = level;
+}
+
+function getActiveComparisonPanels() {
+  return panels.filter((panelState) => Boolean(panelState?.webview && panelState?.modelId));
+}
+
+function updateComparisonPrompt() {
+  if (!comparisonPrompt) return;
+  const text = String(comparisonLastPrompt || "").trim();
+  comparisonPrompt.hidden = !text;
+  comparisonPrompt.textContent = text ? `当前问题：${text.slice(0, 300)}` : "";
+}
+
+async function extractPanelAnswer(panelState) {
+  const label = getPanelLabel(panelState);
+  if (!panelState?.webview) {
+    return { panelId: panelState?.id || "", label, ok: false, text: "", reason: "窗口尚未加载" };
+  }
+  if (!panelState.ready) {
+    return { panelId: panelState.id, label, ok: false, text: "", reason: "页面尚未就绪" };
+  }
+  const config = modelRegistry.get(panelState.modelId);
+  if (!config) {
+    return { panelId: panelState.id, label, ok: false, text: "", reason: "模型配置不可用" };
+  }
+  const currentUrl = panelState.webview.getURL?.() || "";
+  if (!isTrustedGuestUrl(currentUrl, config.injectableOrigins || [])) {
+    return { panelId: panelState.id, label, ok: false, text: "", reason: "网页已跳转到未验证来源" };
+  }
+  try {
+    const result = await panelState.webview.executeJavaScript(
+      buildExtractAnswerScript(panelState.modelId),
+      true,
+    );
+    if (!result?.ok || !String(result.text || "").trim()) {
+      return { panelId: panelState.id, label, ok: false, text: "", reason: result?.reason || "未找到回答文本" };
+    }
+    return { panelId: panelState.id, label, ok: true, text: String(result.text).slice(-COMPARISON_MAX_ANSWER_CHARS) };
+  } catch (error) {
+    return { panelId: panelState.id, label, ok: false, text: "", reason: "读取回答失败" };
+  }
+}
+
+function handleComparisonScroll(event) {
+  if (!comparisonSyncScroll?.checked || comparisonSyncingScroll) return;
+  const source = event.currentTarget;
+  const panes = Array.from(comparisonAnswers.querySelectorAll(".comparison-answer-text"));
+  comparisonSyncingScroll = true;
+  try {
+    for (const pane of panes) {
+      if (pane === source) continue;
+      pane.scrollTop = getSynchronizedScrollTop(
+        source.scrollTop,
+        source.scrollHeight,
+        source.clientHeight,
+        pane.scrollHeight,
+        pane.clientHeight,
+      );
+    }
+  } finally {
+    requestAnimationFrame(() => {
+      comparisonSyncingScroll = false;
+    });
+  }
+}
+
+function renderComparisonAnswers() {
+  if (!comparisonAnswers) return;
+  updateComparisonPrompt();
+  comparisonAnswers.replaceChildren();
+  comparisonAnswers.hidden = comparisonAnswersState.length === 0;
+  comparisonEmpty.hidden = comparisonAnswersState.length > 0;
+  for (const answer of comparisonAnswersState) {
+    const pane = document.createElement("article");
+    pane.className = "comparison-answer-pane";
+    const header = document.createElement("header");
+    header.className = "comparison-answer-header";
+    const title = document.createElement("h4");
+    title.textContent = answer.label;
+    const state = document.createElement("span");
+    state.className = "comparison-answer-state";
+    state.dataset.level = answer.ok ? "success" : "warning";
+    state.textContent = answer.ok ? `${answer.text.length} 字` : (answer.reason || "未读取");
+    header.append(title, state);
+    pane.appendChild(header);
+    if (answer.ok) {
+      const body = document.createElement("div");
+      body.className = "comparison-answer-text";
+      body.tabIndex = 0;
+      body.textContent = answer.text;
+      body.addEventListener("scroll", handleComparisonScroll);
+      pane.appendChild(body);
+    } else {
+      const empty = document.createElement("p");
+      empty.className = "comparison-answer-empty";
+      empty.textContent = `${answer.reason || "未读取到回答"}。请确认该面板已完成回答后点“刷新回答”。`;
+      pane.appendChild(empty);
+    }
+    comparisonAnswers.appendChild(pane);
+  }
+  populateComparisonSummarizer();
+}
+
+function populateComparisonSummarizer() {
+  if (!comparisonSummarizer) return;
+  const previous = comparisonSummarizer.value;
+  const candidates = getActiveComparisonPanels().filter((panelState) => {
+    const config = modelRegistry.get(panelState.modelId);
+    return panelState.ready && config?.allowAutoSend === true;
+  });
+  comparisonSummarizer.replaceChildren();
+  candidates.forEach((panelState) => {
+    const option = document.createElement("option");
+    option.value = panelState.id;
+    option.textContent = getPanelLabel(panelState);
+    comparisonSummarizer.appendChild(option);
+  });
+  if (previous && candidates.some((panelState) => panelState.id === previous)) {
+    comparisonSummarizer.value = previous;
+  } else if (appSettings.comparisonModelId !== "auto") {
+    const preferred = candidates.find((panelState) => panelState.modelId === appSettings.comparisonModelId);
+    if (preferred) comparisonSummarizer.value = preferred.id;
+  }
+  const readable = comparisonAnswersState.filter((answer) => answer.ok && answer.text.trim()).length;
+  const canSummarize = readable >= 2 && candidates.length > 0 && !comparisonSummarizing;
+  if (comparisonSummarize) comparisonSummarize.disabled = !canSummarize;
+  if (comparisonSummarizer) comparisonSummarizer.disabled = candidates.length === 0 || comparisonSummarizing;
+  comparisonSummarizer.title = candidates.length === 0
+    ? "没有支持自动发送且已就绪的面板可用于总结"
+    : "选择一个模型来生成差异总结";
+}
+
+async function refreshComparisonAnswers({ silent = false } = {}) {
+  if (comparisonAnswersRefreshing) return;
+  const active = getActiveComparisonPanels();
+  if (!active.length) {
+    comparisonAnswersState = [];
+    renderComparisonAnswers();
+    setComparisonStatus("当前没有活动面板。请先选择布局并等待网页加载。", "warning");
+    return;
+  }
+  comparisonAnswersRefreshing = true;
+  if (comparisonRefresh) comparisonRefresh.disabled = true;
+  if (!silent) setComparisonStatus("正在读取各面板的最新回答…", "info");
+  try {
+    comparisonAnswersState = await Promise.all(active.map((panelState) => extractPanelAnswer(panelState)));
+    renderComparisonAnswers();
+    const readable = comparisonAnswersState.filter((answer) => answer.ok).length;
+    if (!silent) {
+      setComparisonStatus(
+        readable > 0
+          ? `已读取 ${readable}/${comparisonAnswersState.length} 个面板的回答。`
+          : "未读取到回答；请确认网页中已有回答，或稍后重试。",
+        readable > 0 ? "success" : "warning",
+      );
+    }
+  } finally {
+    comparisonAnswersRefreshing = false;
+    if (!comparisonSummarizing && comparisonRefresh) comparisonRefresh.disabled = false;
+  }
+}
+
+function startComparisonRefresh() {
+  stopComparisonRefresh();
+  comparisonRefreshTimer = setInterval(() => {
+    if (!isComparisonDialogOpen() || document.hidden) return;
+    if (comparisonAnswersFrozen || comparisonSummarizing || comparisonAnswersRefreshing) return;
+    refreshComparisonAnswers({ silent: true });
+  }, COMPARISON_REFRESH_INTERVAL_MS);
+}
+
+function stopComparisonRefresh() {
+  if (comparisonRefreshTimer) {
+    clearInterval(comparisonRefreshTimer);
+    comparisonRefreshTimer = null;
+  }
+}
+
+async function waitForSummaryAnswer(panelState, baselineText) {
+  const startedAt = Date.now();
+  let lastText = "";
+  let stableReads = 0;
+  while (Date.now() - startedAt < COMPARISON_SUMMARY_TIMEOUT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, COMPARISON_SUMMARY_POLL_MS));
+    if (comparisonDialog?.hasAttribute("hidden")) return lastText;
+    const result = await extractPanelAnswer(panelState);
+    if (!result.ok || !result.text || result.text === baselineText) {
+      comparisonSummaryText.textContent = `正在让 ${getPanelLabel(panelState)} 生成总结…（${Math.round((Date.now() - startedAt) / 1000)} 秒）`;
+      continue;
+    }
+    if (result.text === lastText) {
+      stableReads += 1;
+      if (stableReads >= 1) return result.text;
+    } else {
+      lastText = result.text;
+      stableReads = 0;
+    }
+    comparisonSummaryText.textContent = `正在生成总结…（${Math.round((Date.now() - startedAt) / 1000)} 秒）`;
+  }
+  return lastText;
+}
+
+async function summarizeComparisonDifferences() {
+  if (comparisonSummarizing) return;
+  const answers = comparisonAnswersState.filter((answer) => answer.ok && answer.text.trim());
+  if (answers.length < 2) {
+    setComparisonStatus("至少需要两个已读取的回答才能总结差异。", "warning");
+    return;
+  }
+  const panelState = panels.find((candidate) => candidate.id === comparisonSummarizer?.value);
+  if (!panelState?.webview) {
+    setComparisonStatus("请选择一个可用的总结模型。", "warning");
+    return;
+  }
+  const config = modelRegistry.get(panelState.modelId);
+  const prompt = buildDifferenceSummaryPrompt(answers, comparisonLastPrompt);
+  if (!config || !prompt) {
+    setComparisonStatus("无法生成总结提示词。", "warning");
+    return;
+  }
+  const label = getPanelLabel(panelState);
+  const confirmed = window.confirm(
+    `将把 ${answers.length} 段回答发送给“${label}”生成差异总结。回答中可能包含敏感内容，确定继续？`,
+  );
+  if (!confirmed) return;
+
+  comparisonSummarizing = true;
+  comparisonAnswersFrozen = true;
+  stopComparisonRefresh();
+  if (comparisonSummary) comparisonSummary.hidden = false;
+  comparisonSummaryText.textContent = `正在让 ${label} 生成总结…`;
+  setComparisonStatus("已发送总结请求，等待模型回答…", "info");
+  populateComparisonSummarizer();
+  try {
+    const baseline = await extractPanelAnswer(panelState);
+    const script = buildOriginGuardedScript(
+      (config.composeMessageScript || buildGenericScript)(prompt, config.allowAutoSend ? true : false, []),
+      config.injectableOrigins || [],
+    );
+    const result = await dispatchCoordinator.run(
+      panelState.webview,
+      () => panelState.webview.executeJavaScript(script, true),
+    );
+    if (!result || result.success !== true || result.skipped) {
+      throw new Error("summary-send-failed");
+    }
+    const summary = await waitForSummaryAnswer(panelState, baseline.ok ? baseline.text : "");
+    if (summary) {
+      comparisonSummaryText.textContent = summary;
+      setComparisonStatus("差异总结已生成；回答面板已冻结，点“刷新回答”可恢复实时读取。", "success");
+    } else {
+      comparisonSummaryText.textContent = "总结已发送，但未能自动读取结果；请切换到该面板查看。";
+      setComparisonStatus("未能读取总结结果", "warning");
+    }
+  } catch (error) {
+    comparisonSummaryText.textContent = "总结生成失败；请检查该面板的登录/加载状态后重试。";
+    setComparisonStatus("总结生成失败", "error");
+  } finally {
+    comparisonSummarizing = false;
+    populateComparisonSummarizer();
+  }
+}
+
+function isComparisonDialogOpen() {
+  return Boolean(comparisonDialog && !comparisonDialog.hasAttribute("hidden"));
+}
+
+function getComparisonFocusableElements() {
+  if (!comparisonDialog) return [];
+  return Array.from(comparisonDialog.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => !element.hasAttribute("hidden") && !element.closest("[hidden]"));
+}
+
+function trapComparisonDialogFocus(event) {
+  if (!isComparisonDialogOpen() || event.key !== "Tab") return;
+  const focusable = getComparisonFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function openComparisonDialog() {
+  if (!comparisonDialog) return;
+  if (isModelAddDialogOpen()) closeModelAddDialog();
+  comparisonLastFocus = document.activeElement;
+  appShell?.setAttribute("inert", "");
+  comparisonDialog.removeAttribute("hidden");
+  comparisonDialog.removeAttribute("aria-hidden");
+  comparisonAnswersFrozen = false;
+  comparisonAnswersState = [];
+  // Fresh comparison: apply the configured default model rather than carrying
+  // over the selection from the previous dialog session.
+  if (comparisonSummarizer) comparisonSummarizer.value = "";
+  renderComparisonAnswers();
+  refreshComparisonAnswers();
+  startComparisonRefresh();
+  setTimeout(() => comparisonClose?.focus(), 0);
+}
+
+function closeComparisonDialog() {
+  if (!comparisonDialog) return;
+  stopComparisonRefresh();
+  comparisonDialog.setAttribute("hidden", "");
+  comparisonDialog.setAttribute("aria-hidden", "true");
+  appShell?.removeAttribute("inert");
+  if (comparisonLastFocus instanceof HTMLElement) {
+    comparisonLastFocus.focus();
+  }
+}
+
+comparisonButton?.addEventListener("click", () => {
+  openComparisonDialog();
+});
+
+comparisonClose?.addEventListener("click", () => {
+  closeComparisonDialog();
+});
+
+comparisonDialog?.addEventListener("click", (event) => {
+  if (event.target instanceof HTMLElement && event.target.dataset.comparisonDismiss !== undefined) {
+    closeComparisonDialog();
+  }
+});
+
+comparisonRefresh?.addEventListener("click", () => {
+  comparisonAnswersFrozen = false;
+  refreshComparisonAnswers();
+});
+
+comparisonSummarizer?.addEventListener("change", () => {
+  populateComparisonSummarizer();
+});
+
+comparisonSummarize?.addEventListener("click", () => {
+  summarizeComparisonDifferences();
+});
+
+function normalizeSendMode(value) {
+  return SEND_MODE_VALUES.has(value) ? value : "send";
+}
+
+function canQueueMessage(text, attachmentCount = 0) {
+  return Boolean(String(text || "").trim()) && attachmentCount === 0;
+}
+
+function getAnswerWaitState(state, { text = "", generating = false } = {}) {
+  const baseline = state?.baseline || "";
+  const normalized = String(text || "");
+  if (!normalized || normalized === baseline) {
+    return { ...state, lastText: normalized, stable: 0, lastGenerating: generating };
+  }
+  if (normalized === state?.lastText) {
+    return {
+      ...state,
+      lastText: normalized,
+      stable: Number(state?.stable || 0) + 1,
+      lastGenerating: generating,
+    };
+  }
+  return { ...state, lastText: normalized, stable: 0, lastGenerating: generating };
+}
+
+function isAnswerWaitDone(state, stablePolls = QUEUE_ANSWER_STABLE_POLLS) {
+  const stable = Number(state?.stable || 0);
+  // Text stability is the primary signal. A visible stop control only asks for
+  // one more confirmation poll; some sites keep a hidden/stale stop button in
+  // the DOM and would otherwise stall the queue forever.
+  return stable >= (state?.lastGenerating === true ? stablePolls + 1 : stablePolls);
+}
+
+function buildGeneratingCheckScript() {
+  return `(() => {
+    const visible = (element) => Boolean(element && element.getClientRects().length > 0);
+    const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+    const stop = candidates.find((element) => {
+      if (!visible(element) || element.disabled) return false;
+      if (element.getAttribute('aria-disabled') === 'true') return false;
+      const label = [
+        element.getAttribute('aria-label'),
+        element.getAttribute('data-testid'),
+        element.getAttribute('title'),
+        element.innerText,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return /(停止|中止|stop|cancel)/i.test(label)
+        && /(生成|回答|响应|停止|stop|response|generat|stream)/i.test(label);
+    });
+    return { generating: Boolean(stop) };
+  })()`;
+}
+
+async function isPanelGenerating(panelState) {
+  if (!panelState?.webview || !panelState.ready) return false;
+  const config = modelRegistry.get(panelState.modelId);
+  if (!config) return false;
+  const currentUrl = panelState.webview.getURL?.() || "";
+  if (!isTrustedGuestUrl(currentUrl, config.injectableOrigins || [])) return false;
+  try {
+    const result = await panelState.webview.executeJavaScript(buildGeneratingCheckScript(), true);
+    return result?.generating === true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function areAnyPanelsGenerating(panelStates) {
+  const results = await Promise.all((Array.isArray(panelStates) ? panelStates : []).map((panelState) => isPanelGenerating(panelState)));
+  return results.some(Boolean);
+}
+
+async function waitForPanelsIdle(panelStates, onProgress) {
+  queueSkipWaitRequested = false;
+  const states = new Map((Array.isArray(panelStates) ? panelStates : []).map((panelState) => [
+    panelState.id,
+    { lastText: null, stable: 0, unreadable: 0, idle: false },
+  ]));
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < QUEUE_ANSWER_TIMEOUT_MS) {
+    if (queueSkipWaitRequested) {
+      return "skipped";
+    }
+    let busy = 0;
+    await Promise.all((Array.isArray(panelStates) ? panelStates : []).map(async (panelState) => {
+      const state = states.get(panelState.id);
+      if (!state || state.idle) return;
+      const [answer, generating] = await Promise.all([
+        extractPanelAnswer(panelState),
+        isPanelGenerating(panelState),
+      ]);
+      if (!answer.ok) {
+        state.unreadable += 1;
+        if (!generating && state.unreadable >= QUEUE_UNREADABLE_POLLS) state.idle = true;
+      } else {
+        state.unreadable = 0;
+        if (answer.text === state.lastText) {
+          state.stable += 1;
+        } else {
+          state.lastText = answer.text;
+          state.stable = 0;
+        }
+        // A stop control asks for a couple more confirmations, but stable text
+        // wins so a stale/hidden stop button can never pin the queue forever.
+        if (state.stable >= 1 && !generating) {
+          state.idle = true;
+        } else if (state.stable >= 3) {
+          state.idle = true;
+        }
+      }
+      if (!state.idle) busy += 1;
+    }));
+    onProgress?.(busy);
+    if (busy === 0) {
+      return "idle";
+    }
+    await new Promise((resolve) => setTimeout(resolve, QUEUE_ANSWER_POLL_MS));
+  }
+  return "timeout";
+}
+
+function getQueueItemLabel(item) {
+  const text = String(item?.text || "").replace(/\s+/g, " ").trim();
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+}
+
+function clearQueueDropIndicators() {
+  messageQueueList?.querySelectorAll(".message-queue-item").forEach((row) => {
+    row.classList.remove("is-drop-before", "is-drop-after");
+  });
+}
+
+function moveQueueItem(items, draggedId, targetId, after = false) {
+  const list = Array.isArray(items) ? [...items] : [];
+  const fromIndex = list.findIndex((item) => item.id === draggedId);
+  const targetIndex = list.findIndex((item) => item.id === targetId);
+  if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) {
+    return list;
+  }
+  const [moved] = list.splice(fromIndex, 1);
+  const insertIndex = list.findIndex((item) => item.id === targetId);
+  list.splice(after ? insertIndex + 1 : insertIndex, 0, moved);
+  return list;
+}
+
+function reorderQueuedItem(draggedId, targetId, after = false) {
+  if (!draggedId || !targetId || draggedId === targetId) return false;
+  const dragged = queuedMessages.find((item) => item.id === draggedId);
+  const target = queuedMessages.find((item) => item.id === targetId);
+  if (!dragged || !target || dragged === queueCurrentItem) return false;
+  let next = moveQueueItem(queuedMessages, draggedId, targetId, after);
+  if (queueCurrentItem) {
+    // The message being sent/waiting stays pinned to the front of the queue.
+    next = [queueCurrentItem, ...next.filter((item) => item !== queueCurrentItem)];
+  }
+  const before = queuedMessages.map((item) => item.id).join("|");
+  const afterIds = next.map((item) => item.id).join("|");
+  if (before === afterIds) return false;
+  queuedMessages = next;
+  renderMessageQueue();
+  logStatus("已调整排队顺序", "info");
+  return true;
+}
+
+function movePendingQueueItem(itemId, offset) {
+  if (!itemId || !offset) return;
+  const index = queuedMessages.findIndex((item) => item.id === itemId);
+  if (index < 0 || queuedMessages[index] === queueCurrentItem) return;
+  const minIndex = queueCurrentItem ? 1 : 0;
+  const targetIndex = Math.max(minIndex, Math.min(queuedMessages.length - 1, index + offset));
+  if (targetIndex === index) return;
+  const [moved] = queuedMessages.splice(index, 1);
+  queuedMessages.splice(targetIndex, 0, moved);
+  renderMessageQueue();
+  logStatus("已调整排队顺序", "info");
+}
+
+function startQueueEdit(item) {
+  if (!item || item === queueCurrentItem) return;
+  queueEditingId = item.id;
+  renderMessageQueue({ force: true });
+  const input = messageQueueList?.querySelector(`.message-queue-edit-input[data-queue-id="${item.id}"]`);
+  input?.focus();
+  input?.select();
+}
+
+function cancelQueueEdit() {
+  if (!queueEditingId) return;
+  queueEditingId = null;
+  renderMessageQueue();
+}
+
+function saveQueueEdit(item, value) {
+  const nextText = String(value || "").trim();
+  if (!item || !queuedMessages.includes(item)) {
+    queueEditingId = null;
+    renderMessageQueue();
+    return;
+  }
+  if (item === queueCurrentItem) {
+    logStatus("该条消息已开始发送，无法修改", "error");
+    queueEditingId = null;
+    renderMessageQueue();
+    return;
+  }
+  if (!nextText) {
+    logStatus("排队消息不能为空；已保留原文", "error");
+    const input = messageQueueList?.querySelector(`.message-queue-edit-input[data-queue-id="${item.id}"]`);
+    input?.focus();
+    return;
+  }
+  if (nextText === item.text) {
+    cancelQueueEdit();
+    return;
+  }
+  item.text = nextText;
+  queueEditingId = null;
+  renderMessageQueue();
+  logStatus("已更新排队消息", "success");
+}
+
+function buildQueueDragHandle() {
+  const handle = document.createElement("span");
+  handle.className = "message-queue-drag";
+  handle.setAttribute("aria-hidden", "true");
+  handle.title = "拖动排序（Alt + ↑/↓）";
+  handle.innerHTML = `<svg viewBox="0 0 12 16" width="10" height="14" focusable="false">
+    <g fill="currentColor">
+      <circle cx="3" cy="3" r="1.15"/><circle cx="9" cy="3" r="1.15"/>
+      <circle cx="3" cy="8" r="1.15"/><circle cx="9" cy="8" r="1.15"/>
+      <circle cx="3" cy="13" r="1.15"/><circle cx="9" cy="13" r="1.15"/>
+    </g>
+  </svg>`;
+  return handle;
+}
+
+function buildQueueEditButton(item, index) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "message-queue-icon-button message-queue-edit";
+  button.dataset.queueEdit = item.id;
+  button.setAttribute("aria-label", `编辑排队消息 ${index + 1}`);
+  button.title = "编辑消息";
+  button.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 20h4l10-10-4-4L4 16v4Z"/><path d="m14 6 4 4"/>
+  </svg>`;
+  return button;
+}
+
+function buildQueueRemoveButton(item, index) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "message-queue-icon-button message-queue-remove";
+  button.dataset.queueRemove = item.id;
+  button.setAttribute("aria-label", `删除排队消息 ${index + 1}`);
+  button.title = "删除消息";
+  button.textContent = "×";
+  return button;
+}
+
+function renderMessageQueue({ force = false } = {}) {
+  if (!messageQueueEl) return;
+  const visible = queuedMessages.length > 0 || Boolean(queueCurrentItem);
+  messageQueueEl.hidden = !visible;
+  if (!visible) {
+    queueEditingId = null;
+    queueDraggingId = null;
+    messageQueueList?.replaceChildren();
+    return;
+  }
+  const total = queuedMessages.length;
+  if (messageQueueTitle) {
+    messageQueueTitle.textContent = `发送队列 · ${total} 条`;
+  }
+  if (messageQueueHint) {
+    messageQueueHint.textContent = queueCurrentItem
+      ? (queueCurrentItem.statusText || "准备发送…")
+      : "按发送键继续加入队列";
+  }
+  if (queueSkipWait) {
+    queueSkipWait.hidden = !(queueCurrentItem?.waiting);
+  }
+  if (queueClear) {
+    queueClear.disabled = !(queueCurrentItem ? queuedMessages.length > 1 : queuedMessages.length > 0);
+  }
+  if (!messageQueueList) return;
+  if (!queuedMessages.some((item) => item.id === queueEditingId)) {
+    queueEditingId = null;
+  }
+  // Keep the edited row / dragged row alive while background progress updates
+  // the header; replacing the list mid-edit would steal focus or cancel a drag.
+  if ((queueEditingId || queueDraggingId) && !force) {
+    return;
+  }
+  messageQueueList.replaceChildren();
+  queuedMessages.forEach((item, index) => {
+    const isCurrent = item === queueCurrentItem;
+    const isEditing = item.id === queueEditingId;
+    const row = document.createElement("li");
+    row.className = "message-queue-item";
+    row.dataset.queueId = item.id;
+    row.classList.toggle("is-current", isCurrent);
+    row.classList.toggle("is-editing", isEditing);
+    row.draggable = !isCurrent && !isEditing;
+    row.tabIndex = isCurrent ? -1 : 0;
+    row.title = isCurrent ? "正在发送，无法编辑" : "拖动排序（Alt + ↑/↓）";
+
+    const rank = document.createElement("span");
+    rank.className = "message-queue-rank";
+    rank.textContent = String(index + 1);
+
+    if (!isCurrent) {
+      row.appendChild(buildQueueDragHandle());
+    }
+    row.appendChild(rank);
+
+    if (isEditing) {
+      const input = document.createElement("textarea");
+      input.className = "message-queue-edit-input";
+      input.rows = 1;
+      input.value = item.text;
+      input.dataset.queueId = item.id;
+      input.setAttribute("aria-label", `编辑排队消息 ${index + 1}`);
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "message-queue-icon-button message-queue-save";
+      save.dataset.queueSave = item.id;
+      save.setAttribute("aria-label", "保存修改");
+      save.title = "保存（Enter）";
+      save.textContent = "✓";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "message-queue-icon-button message-queue-cancel";
+      cancel.dataset.queueCancel = item.id;
+      cancel.setAttribute("aria-label", "取消修改");
+      cancel.title = "取消（Esc）";
+      cancel.textContent = "×";
+      row.append(input, save, cancel);
+    } else {
+      const text = document.createElement("span");
+      text.className = "message-queue-text";
+      text.textContent = getQueueItemLabel(item);
+      text.title = item.text;
+      const state = document.createElement("small");
+      state.className = "message-queue-state";
+      state.textContent = isCurrent ? (item.statusText || "发送中…") : "排队中";
+      row.append(text, state);
+      if (!isCurrent) {
+        const actions = document.createElement("span");
+        actions.className = "message-queue-actions";
+        actions.append(
+          buildQueueEditButton(item, index),
+          buildQueueRemoveButton(item, index),
+        );
+        row.appendChild(actions);
+      }
+    }
+
+    row.addEventListener("dragstart", (event) => {
+      if (isCurrent || isEditing) {
+        event.preventDefault();
+        return;
+      }
+      queueDraggingId = item.id;
+      row.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", item.id);
+    });
+    row.addEventListener("dragend", () => {
+      queueDraggingId = null;
+      clearQueueDropIndicators();
+      messageQueueList.querySelectorAll(".message-queue-item.is-dragging").forEach((element) => element.classList.remove("is-dragging"));
+      renderMessageQueue();
+    });
+    row.addEventListener("dragover", (event) => {
+      if (!queueDraggingId || queueDraggingId === item.id) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const rect = row.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      clearQueueDropIndicators();
+      row.classList.add(after ? "is-drop-after" : "is-drop-before");
+    });
+    row.addEventListener("dragleave", () => {
+      row.classList.remove("is-drop-before", "is-drop-after");
+    });
+    row.addEventListener("drop", (event) => {
+      if (!queueDraggingId) return;
+      event.preventDefault();
+      const after = row.classList.contains("is-drop-after");
+      const draggedId = queueDraggingId;
+      queueDraggingId = null;
+      clearQueueDropIndicators();
+      reorderQueuedItem(draggedId, item.id, after);
+    });
+    row.addEventListener("keydown", (event) => {
+      if (isCurrent || isEditing) return;
+      if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+      event.preventDefault();
+      movePendingQueueItem(item.id, event.key === "ArrowUp" ? -1 : 1);
+    });
+    messageQueueList.appendChild(row);
+  });
+}
+
+function enqueueMessage(text) {
+  const normalized = String(text || "").trim();
+  if (!canQueueMessage(normalized, attachments.size)) {
+    logStatus("排队发送暂不支持附件；请移除附件或改用立即发送", "error");
+    return false;
+  }
+  if (queuedMessages.length >= QUEUE_LIMIT) {
+    logStatus(`发送队列最多 ${QUEUE_LIMIT} 条，请等待或清空后重试`, "error");
+    return false;
+  }
+  queueSequence += 1;
+  queuedMessages.push({
+    id: `queue-${Date.now()}-${queueSequence}`,
+    text: normalized,
+    statusText: "排队中",
+    snapshot: null,
+    baselines: new Map(),
+    results: null,
+    waiting: false,
+  });
+  logStatus(`已加入发送队列（${queuedMessages.length} 条）`, "info");
+  renderMessageQueue();
+  void processMessageQueue();
+  return true;
+}
+
+async function captureAnswerBaselines(recipients) {
+  const baselines = new Map();
+  await Promise.all((Array.isArray(recipients) ? recipients : []).map(async (recipient) => {
+    const panelState = recipient?.panelState;
+    if (!panelState) return;
+    const answer = await extractPanelAnswer(panelState);
+    baselines.set(panelState.id, answer.ok ? answer.text : "");
+  }));
+  return baselines;
+}
+
+async function dispatchSnapshotToPanels(snapshot, { fillOnly = false } = {}) {
+  return settleBroadcastTasks(
+    snapshot.recipients,
+    (recipient) => {
+      const panelState = recipient?.panelState;
+      if (!panelState || panelState.modelId !== recipient.modelId || panelState.webview !== recipient.webview) {
+        return Promise.resolve({
+          panel: recipient?.label || getPanelLabel(panelState),
+          status: "error",
+          message: "发送目标已变化；为保护内容已取消本次发送",
+        });
+      }
+      return dispatchMessage(panelState, snapshot.text, snapshot.attachments, { fillOnly });
+    },
+    undefined,
+    (recipient) => dispatchCoordinator.reset(recipient?.webview),
+  );
+}
+
+async function waitForQueuedAnswers(item) {
+  if (!item?.snapshot || !Array.isArray(item.results)) return;
+  const waitTargets = item.snapshot.recipients
+    .map((recipient, index) => ({ recipient, result: item.results[index] }))
+    .filter(({ result }) => result?.attemptedAutoSend === true);
+  if (!waitTargets.length) {
+    return;
+  }
+  queueSkipWaitRequested = false;
+  const states = new Map(waitTargets.map(({ recipient }) => [
+    recipient.panelState?.id || recipient.modelId,
+    {
+      baseline: item.baselines.get(recipient.panelState?.id) || "",
+      lastText: "",
+      stable: 0,
+      unreadable: 0,
+      done: false,
+    },
+  ]));
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < QUEUE_ANSWER_TIMEOUT_MS) {
+    if (queueSkipWaitRequested) {
+      logStatus("队列：已跳过等待，继续下一条", "info");
+      item.statusText = "已跳过等待";
+      renderMessageQueue();
+      return;
+    }
+    let pending = 0;
+    const pendingLabels = [];
+    await Promise.all(waitTargets.map(async ({ recipient }) => {
+      const key = recipient.panelState?.id || recipient.modelId;
+      const state = states.get(key);
+      if (!state || state.done) return;
+      const panelState = recipient.panelState;
+      if (!panelState || panelState.webview !== recipient.webview || panelState.modelId !== recipient.modelId) {
+        state.done = true;
+        return;
+      }
+      const [answer, generating] = await Promise.all([
+        extractPanelAnswer(panelState),
+        isPanelGenerating(panelState),
+      ]);
+      if (!answer.ok) {
+        state.unreadable += 1;
+        // If a site cannot expose answer text, don't stall the whole queue:
+        // give it a few polls after streaming stopped, then move on.
+        if (!generating && state.unreadable >= QUEUE_UNREADABLE_POLLS) {
+          state.done = true;
+        }
+      } else {
+        state.unreadable = 0;
+        Object.assign(state, getAnswerWaitState(state, { text: answer.text, generating }));
+        if (isAnswerWaitDone(state)) {
+          state.done = true;
+        }
+      }
+      if (!state.done) {
+        pending += 1;
+        pendingLabels.push(recipient.label || getPanelLabel(panelState));
+      }
+    }));
+    const pendingNames = pendingLabels.slice(0, 2).join("、") + (pendingLabels.length > 2 ? " 等" : "");
+    item.statusText = pending > 0
+      ? `已发送，等待 ${pendingNames || `${pending} 个面板`} 回答完成…`
+      : "回答完成";
+    renderMessageQueue();
+    if (pending === 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, QUEUE_ANSWER_POLL_MS));
+  }
+  item.statusText = "等待回答超时，继续下一条";
+  renderMessageQueue();
+  logStatus("队列：等待回答超时，继续发送下一条", "warning");
+}
+
+async function processMessageQueue() {
+  if (queueProcessing) return;
+  queueProcessing = true;
+  renderMessageQueue();
+  try {
+    while (queuedMessages.length > 0) {
+      const item = queuedMessages[0];
+      queueCurrentItem = item;
+      item.statusText = "发送中…";
+      item.waiting = false;
+      renderMessageQueue();
+      try {
+        if (!panels.length || activePanelCount <= 0) {
+          logStatus("队列：当前没有活动面板，跳过该条消息", "error");
+        } else {
+          comparisonLastPrompt = item.text;
+          const activePanels = panels.slice(0, activePanelCount);
+          if (await areAnyPanelsGenerating(activePanels)) {
+            item.waiting = true;
+            item.statusText = "等待当前回答完成…";
+            renderMessageQueue();
+            logStatus("队列：当前仍有面板在回答，等待全部完成后再发送", "info");
+            const idleResult = await waitForPanelsIdle(activePanels, (busy) => {
+              item.statusText = busy > 0 ? "等待当前回答完成…" : "准备发送…";
+              renderMessageQueue();
+            });
+            item.waiting = false;
+            if (idleResult === "timeout") {
+              logStatus("队列：等待当前回答超时，仍继续发送该条", "warning");
+            } else if (idleResult === "skipped") {
+              logStatus("队列：已跳过当前等待，立即发送该条", "info");
+            }
+          }
+          const snapshot = createBroadcastSnapshot(panels, activePanelCount, item.text, []);
+          item.snapshot = snapshot;
+          item.baselines = await captureAnswerBaselines(snapshot.recipients);
+          logStatus(`队列：正在发送“${getQueueItemLabel(item)}”…`, "info");
+          const results = await dispatchSnapshotToPanels(snapshot);
+          item.results = results;
+          presentResults(results);
+          logBroadcastSummary(results);
+          item.waiting = true;
+          item.statusText = "已发送，等待回答完成…";
+          renderMessageQueue();
+          await waitForQueuedAnswers(item);
+          item.waiting = false;
+          if (queuedMessages.length > 1) {
+            logStatus("队列：本条已完成，准备发送下一条", "success");
+          }
+        }
+      } catch (error) {
+        logStatus("队列：本条发送失败，已跳过", "error");
+      }
+      queuedMessages.shift();
+      queueCurrentItem = null;
+      renderMessageQueue();
+    }
+  } finally {
+    queueProcessing = false;
+    queueCurrentItem = null;
+    renderMessageQueue();
+  }
+}
+
+function setSendMode(value, { persist = false } = {}) {
+  sendModeValue = normalizeSendMode(value);
+  if (persist) {
+    appSettings = { ...appSettings, sendMode: sendModeValue };
+    persistSettings();
+  }
+  sendModeEl?.setAttribute("data-mode", sendModeValue);
+  sendModeOptions.forEach((option) => {
+    option.setAttribute("aria-checked", String(option.dataset.sendMode === sendModeValue));
+  });
+  if (sendButton) {
+    const labels = {
+      send: "发送消息",
+      queue: "加入发送队列",
+      fill: "仅填入网页输入框",
+    };
+    sendButton.setAttribute("aria-label", labels[sendModeValue]);
+    sendButton.title = `${labels[sendModeValue]} (Enter)`;
+  }
+}
+
+function openSendModeMenu() {
+  if (!sendModeMenu) return;
+  clearTimeout(sendModeCloseTimer);
+  sendModeMenu.hidden = false;
+  sendButton?.setAttribute("aria-expanded", "true");
+}
+
+function closeSendModeMenu() {
+  if (!sendModeMenu) return;
+  sendModeMenu.hidden = true;
+  sendButton?.setAttribute("aria-expanded", "false");
+}
+
+function scheduleCloseSendModeMenu() {
+  clearTimeout(sendModeCloseTimer);
+  sendModeCloseTimer = setTimeout(closeSendModeMenu, 240);
+}
+
+sendModeEl?.addEventListener("pointerenter", openSendModeMenu);
+sendModeEl?.addEventListener("pointerleave", scheduleCloseSendModeMenu);
+sendModeEl?.addEventListener("focusin", openSendModeMenu);
+sendModeEl?.addEventListener("focusout", scheduleCloseSendModeMenu);
+sendModeMenu?.addEventListener("pointerenter", openSendModeMenu);
+sendModeMenu?.addEventListener("pointerleave", scheduleCloseSendModeMenu);
+
+sendModeOptions.forEach((option) => {
+  option.addEventListener("click", () => {
+    setSendMode(option.dataset.sendMode, { persist: true });
+    closeSendModeMenu();
+    logStatus(`发送方式已切换为“${option.querySelector(".send-mode-name")?.textContent || option.dataset.sendMode}”`, "info");
+  });
+});
+
+sendButton?.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  openSendModeMenu();
+  const options = sendModeOptions;
+  (event.key === "ArrowDown" ? options[0] : options[options.length - 1])?.focus();
+});
+
+sendModeMenu?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSendModeMenu();
+    sendButton?.focus();
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  const currentIndex = sendModeOptions.indexOf(document.activeElement);
+  const direction = event.key === "ArrowDown" ? 1 : -1;
+  const nextIndex = (currentIndex + direction + sendModeOptions.length) % sendModeOptions.length;
+  sendModeOptions[nextIndex]?.focus();
+});
+
+document.addEventListener("pointerdown", (event) => {
+  if (sendModeEl && event.target instanceof Node && !sendModeEl.contains(event.target)) {
+    closeSendModeMenu();
+  }
+});
+
+queueSkipWait?.addEventListener("click", () => {
+  queueSkipWaitRequested = true;
+  logStatus("队列：正在跳过当前等待", "info");
+});
+
+queueClear?.addEventListener("click", () => {
+  const pending = queueCurrentItem ? queuedMessages.slice(1) : queuedMessages.slice();
+  if (!pending.length) return;
+  queuedMessages = queueCurrentItem ? [queueCurrentItem] : [];
+  if (!queuedMessages.some((item) => item.id === queueEditingId)) {
+    queueEditingId = null;
+  }
+  renderMessageQueue();
+  logStatus("已清空排队消息", "info");
+});
+
+messageQueueList?.addEventListener("click", (event) => {
+  const button = event.target instanceof HTMLButtonElement ? event.target : null;
+  if (!button) return;
+  if (button.dataset.queueEdit) {
+    const item = queuedMessages.find((entry) => entry.id === button.dataset.queueEdit);
+    startQueueEdit(item);
+    return;
+  }
+  if (button.dataset.queueSave) {
+    const item = queuedMessages.find((entry) => entry.id === button.dataset.queueSave);
+    const input = button.closest(".message-queue-item")?.querySelector(".message-queue-edit-input");
+    if (item && input) saveQueueEdit(item, input.value);
+    return;
+  }
+  if (button.dataset.queueCancel) {
+    cancelQueueEdit();
+    return;
+  }
+  if (button.dataset.queueRemove) {
+    const queueId = button.dataset.queueRemove;
+    const item = queuedMessages.find((entry) => entry.id === queueId);
+    if (!item || item === queueCurrentItem) return;
+    queuedMessages = queuedMessages.filter((entry) => entry.id !== queueId);
+    if (queueEditingId === queueId) queueEditingId = null;
+    renderMessageQueue();
+    logStatus("已删除一条排队消息", "info");
+  }
+});
+
+messageQueueList?.addEventListener("keydown", (event) => {
+  const input = event.target instanceof HTMLElement
+    ? event.target.closest(".message-queue-edit-input")
+    : null;
+  if (!input) return;
+  const item = queuedMessages.find((entry) => entry.id === input.dataset.queueId);
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    if (item) saveQueueEdit(item, input.value);
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelQueueEdit();
+  }
+});
+
+setSendMode(sendModeValue);
 
 function selectLayout(layoutId) {
   const preset = normalizeLayoutPreset(layoutId);
@@ -2311,11 +4258,68 @@ layoutButtons.forEach((button) => {
   });
 });
 
+function isEditableShortcutTarget(target) {
+  return target instanceof Element
+    && Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+function isSendShortcut(event) {
+  if (event.repeat || event.isComposing) return false;
+  if (event.key !== "Enter" || event.shiftKey) return false;
+  const mode = appSettings.shortcuts.send;
+  if (mode === "enter") {
+    return !event.metaKey && !event.ctrlKey && !event.altKey;
+  }
+  if (mode === "mod-enter") {
+    return Boolean(event.metaKey || event.ctrlKey) && !event.altKey;
+  }
+  if (mode === "ctrl-enter") {
+    return Boolean(event.ctrlKey) && !event.metaKey && !event.altKey;
+  }
+  return false;
+}
+
+function matchesLayoutShortcut(event) {
+  const mode = appSettings.shortcuts.layout;
+  if (mode === "disabled") return false;
+  if (!event.altKey || event.repeat || event.isComposing) return false;
+  if (mode === "alt-arrows") {
+    return !event.metaKey && !event.ctrlKey;
+  }
+  if (mode === "mod-alt-arrows") {
+    return Boolean(event.metaKey || event.ctrlKey);
+  }
+  return false;
+}
+
+function matchesComparisonShortcut(event) {
+  const mode = appSettings.shortcuts.comparison;
+  if (mode === "disabled" || event.repeat || event.isComposing) return false;
+  const key = String(event.key || "").toLowerCase();
+  if (key !== "c") return false;
+  if (mode === "mod-shift-c") {
+    return Boolean(event.shiftKey) && Boolean(event.metaKey || event.ctrlKey) && !event.altKey;
+  }
+  if (mode === "alt-c") {
+    return Boolean(event.altKey) && !event.metaKey && !event.ctrlKey;
+  }
+  return false;
+}
+
 document.addEventListener("keydown", (event) => {
-  if (isModelAddDialogOpen()) {
+  if (isModelAddDialogOpen() || isComparisonDialogOpen()) {
     return;
   }
-  if (!event.altKey) {
+  if (isSettingsDialogOpen()) {
+    return;
+  }
+  if (!matchesLayoutShortcut(event)) {
+    return;
+  }
+  // Option+Arrow is macOS word navigation inside any text field; hijacking it
+  // there would make typing in the composer feel broken. Use the sidebar layout
+  // buttons while a website panel has focus.
+  if (isEditableShortcutTarget(event.target)) {
     return;
   }
   const target = layoutButtons.find((button) => button.dataset.layout === currentLayout);
@@ -2346,6 +4350,12 @@ if (modelAddButton) {
   });
 } else {
   console.error("找不到modelAddButton元素");
+}
+
+if (modelRestoreDefaultsButton) {
+  modelRestoreDefaultsButton.addEventListener("click", () => {
+    restoreDefaultModels();
+  });
 }
 
 if (modelAddCancel) {
@@ -2421,6 +4431,51 @@ if (modelAddForm) {
   });
 }
 
+if (settingsButton) {
+  settingsButton.addEventListener("click", openSettingsDialog);
+}
+if (collapsedSettingsButton) {
+  collapsedSettingsButton.addEventListener("click", openSettingsDialog);
+}
+if (settingsClose) {
+  settingsClose.addEventListener("click", () => closeSettingsDialog());
+}
+if (settingsCancel) {
+  settingsCancel.addEventListener("click", () => closeSettingsDialog());
+}
+if (settingsDialog) {
+  settingsDialog.addEventListener("click", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.dataset.settingsDismiss !== undefined) {
+      closeSettingsDialog();
+    }
+  });
+}
+if (settingsReset) {
+  settingsReset.addEventListener("click", resetSettingsForm);
+}
+if (settingsForm) {
+  settingsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    appSettings = normalizeSettings({
+      ...appSettings,
+      sendMode: settingsSendMode?.value,
+      comparisonModelId: settingsComparisonModel?.value,
+      showStatusBar: Boolean(settingsShowStatus?.checked),
+      shortcuts: {
+        send: settingsSendShortcut?.value,
+        layout: settingsLayoutShortcut?.value,
+        comparison: settingsComparisonShortcut?.value,
+      },
+    });
+    persistSettings();
+    setSendMode(appSettings.sendMode);
+    applyStatusBarVisibility();
+    closeSettingsDialog();
+    logStatus("设置已保存", "success");
+  });
+}
+
 // 添加附件按钮事件
 if (addAttachmentBtn) {
   addAttachmentBtn.addEventListener('click', () => {
@@ -2430,6 +4485,7 @@ if (addAttachmentBtn) {
 
 broadcastForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  closeSendModeMenu();
   if (isBroadcasting) return;
   const broadcastBlockReason = getBroadcastBlockReason();
   if (broadcastBlockReason) {
@@ -2441,16 +4497,35 @@ broadcastForm.addEventListener("submit", async (event) => {
     logStatus("请输入内容或选择附件", "error");
     return;
   }
+  if (sendModeValue === "queue") {
+    if (attachments.size > 0) {
+      logStatus("排队发送暂不支持附件；请移除附件或改用立即发送", "error");
+      return;
+    }
+    if (!text) {
+      logStatus("请输入内容后再加入队列", "error");
+      return;
+    }
+    if (enqueueMessage(text)) {
+      broadcastInput.value = "";
+      draftRevision += 1;
+      pendingBroadcastTurn = null;
+      autoResize(broadcastInput);
+    }
+    return;
+  }
+  const fillOnly = sendModeValue === "fill";
   const draftSnapshot = { text: broadcastInput.value, revision: draftRevision };
   const pendingAction = getPendingBroadcastAction(pendingBroadcastTurn, {
     value: broadcastInput.value,
     revision: draftRevision,
-  }, activePanelCount);
+  }, activePanelCount, getRankedModelIds(modelOrder, activePanelCount));
   if (pendingAction.mode === "hold") {
     logStatus("该消息已填入网页，请先在网页中确认或修改草稿后再发送", "info");
     return;
   }
 
+  comparisonLastPrompt = text;
   isBroadcasting = true;
   syncComposerState();
   // 显示发送状态
@@ -2458,11 +4533,7 @@ broadcastForm.addEventListener("submit", async (event) => {
 
   try {
   const localAttachments = Array.from(attachments.values());
-  const { payload: attachmentPayload, failures: attachmentReadFailures } = await buildAttachmentPayloads(localAttachments);
-  if (attachmentReadFailures.length) {
-    logStatus(`${attachmentReadFailures.length} 个附件无法读取，已保留以便重试`, "error");
-    return;
-  }
+  const attachmentPayload = buildAttachmentPayloads(localAttachments);
 
     const snapshot = pendingAction.mode === "retry"
       ? {
@@ -2471,20 +4542,7 @@ broadcastForm.addEventListener("submit", async (event) => {
         recipients: pendingAction.recipients,
       }
       : createBroadcastSnapshot(panels, activePanelCount, text, attachmentPayload);
-    const results = await settleBroadcastTasks(
-      snapshot.recipients,
-      (recipient) => {
-        const panelState = recipient?.panelState;
-        if (!panelState || panelState.modelId !== recipient.modelId || panelState.webview !== recipient.webview) {
-          return Promise.resolve({
-            panel: recipient?.label || getPanelLabel(panelState),
-            status: "error",
-            message: "发送目标已变化；为保护内容已取消本次发送",
-          });
-        }
-        return dispatchMessage(panelState, snapshot.text, snapshot.attachments);
-      },
-    );
+    const results = await dispatchSnapshotToPanels(snapshot, { fillOnly });
     presentResults(results);
     const completedSnapshot = pendingAction.mode === "retry" && pendingBroadcastTurn
       ? pendingBroadcastTurn
@@ -2499,28 +4557,10 @@ broadcastForm.addEventListener("submit", async (event) => {
       completedResults,
     );
 
-    // 统计发送结果
-    const attemptedCount = results.filter((result) => result.attemptedAutoSend === true).length;
-    const filledCount = results.filter((result) => result.status === "success" && result.attemptedAutoSend !== true).length;
-    const errorCount = results.filter((result) => result.status === "error").length;
+    logBroadcastSummary(results);
 
-    if (attemptedCount > 0) {
-      logStatus(`已尝试触发 ${attemptedCount} 个网页发送`, "success");
-    }
-    if (filledCount > 0) {
-      logStatus(`已填充 ${filledCount} 个网页输入框，请在网页中确认发送`, "info");
-    }
-    if (errorCount > 0) {
-      logStatus(`${errorCount} 个模型发送失败`, "error");
-    }
-
-    if (attachmentPayload.length > 0 || attachmentReadFailures.length > 0) {
-      if (attachmentReadFailures.length === 0 && shouldClearAttachmentsForResults(results, attachmentPayload.length)) {
-        clearAttachments();
-          logStatus("已清除本地附件", "success");
-      } else {
-          logStatus("附件保留在本地；请在每个网页自己的上传界面中选择、确认并手动发送。", "info");
-      }
+    if (attachmentPayload.length > 0) {
+      logStatus("附件保留在本地；请在每个网页自己的上传界面中选择、确认并手动发送。", "info");
     }
 
     if (shouldClearBroadcastDraft(draftSnapshot, {
@@ -2532,17 +4572,11 @@ broadcastForm.addEventListener("submit", async (event) => {
       pendingBroadcastTurn = null;
       autoResize(broadcastInput);
     }
-    setTimeout(() => {
-      broadcastInput.focus({ preventScroll: true });
-    }, 0);
+    restoreComposerFocusAfterBroadcast();
   } finally {
     isBroadcasting = false;
     syncComposerState();
-    if (!document.activeElement || document.activeElement !== broadcastInput) {
-      setTimeout(() => {
-        broadcastInput.focus({ preventScroll: true });
-      }, 0);
-    }
+    restoreComposerFocusAfterBroadcast();
   }
 });
 
@@ -2550,9 +4584,14 @@ broadcastInput.addEventListener("keydown", (event) => {
   if (event.isComposing || event.keyCode === 229) {
     return;
   }
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (isSendShortcut(event)) {
     event.preventDefault();
-    if (isBroadcasting || getBroadcastBlockReason()) return;
+    if (isBroadcasting) return;
+    const blockReason = getBroadcastBlockReason();
+    if (blockReason) {
+      logStatus(blockReason, "info");
+      return;
+    }
     broadcastForm.requestSubmit();
   }
 });
@@ -2560,6 +4599,18 @@ broadcastInput.addEventListener("keydown", (event) => {
 // 键盘快捷键支持
 document.addEventListener('keydown', (event) => {
   trapModelAddDialogFocus(event);
+  trapComparisonDialogFocus(event);
+  trapSettingsDialogFocus(event);
+  if (event.key === 'Escape' && isSettingsDialogOpen()) {
+    event.preventDefault();
+    closeSettingsDialog();
+    return;
+  }
+  if (event.key === 'Escape' && isComparisonDialogOpen()) {
+    event.preventDefault();
+    closeComparisonDialog();
+    return;
+  }
   if (event.key === 'Escape' && keyboardDraggedModelId && !isModelAddDialogOpen()) {
     event.preventDefault();
     cancelKeyboardModelDrag();
@@ -2572,6 +4623,27 @@ document.addEventListener('keydown', (event) => {
   }
 
 
+  // Ctrl/Cmd + ,: 打开设置
+  const isCommaShortcut = event.key === ',' || event.code === 'Comma';
+  if ((event.ctrlKey || event.metaKey) && isCommaShortcut && !isModelAddDialogOpen() && !isComparisonDialogOpen()) {
+    event.preventDefault();
+    if (isSettingsDialogOpen()) {
+      closeSettingsDialog();
+    } else {
+      openSettingsDialog();
+    }
+    return;
+  }
+
+  // Configurable comparison shortcut.
+  if (!isModelAddDialogOpen() && !isComparisonDialogOpen() && !isSettingsDialogOpen()
+    && matchesComparisonShortcut(event)
+    && !isEditableShortcutTarget(event.target)) {
+    event.preventDefault();
+    openComparisonDialog();
+    return;
+  }
+
   // Ctrl/Cmd + /: 显示快捷键帮助
   if ((event.ctrlKey || event.metaKey) && event.key === '/') {
     event.preventDefault();
@@ -2580,15 +4652,39 @@ document.addEventListener('keydown', (event) => {
 });
 
 function showShortcutHelp() {
-  const helpText = `
-快捷键帮助:
-• Ctrl/Cmd + Enter: 发送消息
-• Alt + ←/→: 切换布局
-• Ctrl/Cmd + /: 显示此帮助
-  `.trim();
-
-  alert(helpText);
-  logStatus("快捷键帮助", "info");
+  // Keep this list identical to the implemented handlers; the status strip is
+  // the feedback channel, so no blocking alert is needed.
+  const sendLine = appSettings.shortcuts.send === "enter"
+    ? "• Enter：发送消息"
+    : appSettings.shortcuts.send === "mod-enter"
+      ? "• ⌘/Ctrl + Enter：发送消息"
+      : "• Ctrl + Enter：发送消息";
+  const layoutLine = appSettings.shortcuts.layout === "alt-arrows"
+    ? "• Alt + ←/→：切换布局（可在设置中修改）"
+    : appSettings.shortcuts.layout === "mod-alt-arrows"
+      ? "• ⌘/Ctrl + Alt + ←/→：切换布局"
+      : "• 切换布局：未设置快捷键";
+  const comparisonLine = appSettings.shortcuts.comparison === "mod-shift-c"
+    ? "• ⌘/Ctrl + Shift + C：打开回答对比"
+    : appSettings.shortcuts.comparison === "alt-c"
+      ? "• Alt + C：打开回答对比"
+      : "• 打开回答对比：未设置快捷键";
+  [
+    "快捷键帮助：",
+    sendLine,
+    "• Shift + Enter：换行",
+    layoutLine,
+    comparisonLine,
+    "• Ctrl/Cmd + /：显示此帮助",
+    "• ⌘/Ctrl + ,：打开设置",
+    "• 悬停发送按钮：立即发送 / 排队发送 / 仅填入",
+  ].forEach((line) => logStatus(line, "info"));
+  // Help is an explicit request; surface the transcript even when the status
+  // bar is normally hidden.
+  if (!appSettings.showStatusBar && broadcastStatus && broadcastStatusList?.children.length) {
+    broadcastStatus.hidden = false;
+    broadcastStatus.scrollTop = broadcastStatus.scrollHeight;
+  }
 }
 
 // 更新日期时间显示
@@ -2642,7 +4738,11 @@ if (screenshotBtn && window.qask && window.qask.screenshot) {
   });
 }
 
-DEFAULT_MODELS.forEach((model) => registerModel(model, { replace: true }));
+DEFAULT_MODELS.forEach((model) => {
+  if (!hiddenDefaultModelIds.has(model.id)) {
+    registerModel(model, { replace: true });
+  }
+});
 let removedUnsafeCustomModel = false;
 persistedCustomModels.forEach((model) => {
   if (!model || !model.id || !model.url) {

@@ -78,6 +78,7 @@ class TestKeyboardEvent extends TestEvent {}
 const createEditable = () => ({
   closest: () => null,
   events: [],
+  getClientRects: () => [{ width: 1, height: 1 }],
   focus() {},
   dispatchEvent(event) {
     this.events.push(event);
@@ -326,6 +327,11 @@ test('Copilot adapter uses its contenteditable fallback for text and keyboard se
       if (selector.includes('[contenteditable')) return editable;
       return null;
     },
+    querySelectorAll: (selector) => {
+      if (selector.startsWith('button') || selector.includes('textarea')) return [];
+      if (selector.includes('[contenteditable')) return [editable];
+      return [];
+    },
   };
   const result = await runGeneratedScript(buildCopilotScript('test message', true, []), {
     document,
@@ -458,4 +464,124 @@ test('Claude adapter ignores attachment arguments and does not schedule image pa
   const script = buildClaudeScript('test message', false, [{ id: 'image', name: 'example.png', type: 'image/png' }]);
 
   assert.doesNotMatch(script, /dataUri|fetch\(|new DataTransfer\(|new File\(|ClipboardEvent\('paste'/);
+});
+
+
+test('a disabled send control is reported as unconfirmed instead of a plain fill', async () => {
+  const { buildClaudeScript } = createAdapterHarness();
+  const editable = createEditable();
+  const disabledButton = {
+    disabled: true,
+    getAttribute: () => null,
+    click() {
+      throw new Error('a disabled send control must never be clicked');
+    },
+  };
+  const document = {
+    createRange: () => ({ selectNodeContents() {} }),
+    dispatchEvent() {},
+    execCommand: () => true,
+    querySelector: (selector) => (selector.startsWith('button') ? disabledButton : editable),
+    querySelectorAll: (selector) => (selector.startsWith('button') ? [disabledButton] : []),
+  };
+  const result = await runGeneratedScript(buildClaudeScript('test message', true, []), {
+    document,
+    window: { getSelection: createSelection },
+    HTMLTextAreaElement: class {},
+    HTMLInputElement: class {},
+    InputEvent: undefined,
+    Event: TestEvent,
+    KeyboardEvent: TestKeyboardEvent,
+    DataTransfer: undefined,
+    ClipboardEvent: undefined,
+    File: undefined,
+    fetch: undefined,
+    setTimeout: (resolve) => resolve(),
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.autoSent, false);
+  assert.equal(result.sendControlDisabled, true);
+});
+
+test('the ChatGPT adapter fills the contenteditable composer and only picks visible send controls', () => {
+  const { buildChatGPTScript } = createAdapterHarness();
+  const script = buildChatGPTScript('test message', true, []);
+
+  // chatgpt.com currently renders ProseMirror instead of a literal textarea.
+  assert.match(script, /textarea\[data-id="prompt-textarea"\]/);
+  assert.match(script, /div\[contenteditable="true"\]\[data-testid="prompt-textarea"\]/);
+  assert.match(script, /button\[data-testid="send-button"\]/);
+  // Hidden duplicate editors must not be filled.
+  assert.match(script, /getClientRects\(\)\.length > 0/);
+  assert.match(script, /sendControlDisabled: true/);
+});
+
+
+test('built-in adapters never replay text through a synthetic data-bearing InputEvent', () => {
+  const harness = createAdapterHarness();
+  for (const name of adapterNames) {
+    const script = harness[name]('test message', true, []);
+    // Kimi's Lexical editor inserts the payload a second time when it receives
+    // a synthetic InputEvent carrying event.data, which produced duplicated
+    // prompts. Only the native input event from execCommand/value changes plus
+    // one plain bubbling input event are allowed.
+    assert.doesNotMatch(script, /new InputEvent\('input'/, `${name} dispatches a synthetic InputEvent`);
+    assert.doesNotMatch(script, /inputType: 'insertFromPaste'/, `${name} fakes insertFromPaste`);
+    assert.match(script, /new Event\(['"]input['"]/, `${name} must still notify the editor`);
+  }
+});
+
+test('the Kimi adapter fills a Lexical-style editor exactly once', async () => {
+  const { buildKimiScript } = createAdapterHarness();
+  const editor = {
+    innerText: '',
+    textContent: '',
+    events: [],
+    closest: () => null,
+    focus() {},
+    getClientRects: () => [{ width: 1, height: 1 }],
+    dispatchEvent(event) {
+      this.events.push(event);
+      return true;
+    },
+  };
+  const document = {
+    createRange: () => ({ selectNodeContents() {}, deleteContents() {}, insertNode() {} }),
+    execCommand: (command, _showUi, value) => {
+      if (command === 'insertText') {
+        editor.textContent += value;
+        editor.innerText = editor.textContent;
+      }
+      return true;
+    },
+    querySelector: () => null,
+    querySelectorAll: (selector) => (selector.includes('textarea') ? [] : [editor]),
+    getSelection: createSelection,
+  };
+
+  class ForbiddenInputEvent {
+    constructor() {
+      throw new Error('a data-bearing InputEvent would duplicate Kimi text');
+    }
+  }
+
+  const result = await runGeneratedScript(buildKimiScript('今天天气怎么样', false, []), {
+    document,
+    window: { getSelection: createSelection },
+    HTMLTextAreaElement: class {},
+    HTMLInputElement: class {},
+    InputEvent: ForbiddenInputEvent,
+    Event: TestEvent,
+    KeyboardEvent: TestKeyboardEvent,
+    DataTransfer: undefined,
+    ClipboardEvent: undefined,
+    File: undefined,
+    fetch: undefined,
+    setTimeout: (resolve) => resolve(),
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(editor.textContent, '今天天气怎么样');
+  assert.equal((editor.textContent.match(/今天天气怎么样/g) || []).length, 1);
 });

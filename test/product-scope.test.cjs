@@ -166,7 +166,7 @@ test('public documentation and package metadata state the AGPL source and commer
   assert.match(contributing, /AGPL-3\.0-or-later/);
   assert.match(contributing, /GitHub's private vulnerability reporting flow/i);
   assert.match(contributing, /does not currently use a CLA/i);
-  assert.match(architecture, /window\.qask\.attachments\.inspect/);
+  assert.match(architecture, /window\.qask\.attachments\.\{inspect,persist,reveal\}/);
   assert.match(commercial, /AGPL-3\.0-or-later/);
   assert.match(commercial, /commercial license/i);
   assert.match(commercial, /Contributions remain\s+under their stated open-source license/i);
@@ -204,15 +204,18 @@ test('repository-only development checks are not claimed to work from the minima
   assert.match(guide, /最小运行时包不包含 lockfile 或测试资产/);
 });
 
-test('attachment retention documentation says local queue entries last only for the current app session', () => {
+test('attachment retention documentation distinguishes the in-memory queue from saved local files', () => {
   const privacy = readProjectFile('PRIVACY.md');
   const guide = readProjectFile('docs/user-guide.md');
   const architecture = readProjectFile('docs/architecture.md');
 
-  assert.match(privacy, /until you remove its entry\s+or close the app/i);
+  assert.match(privacy, /attachment queue remains in renderer memory until you remove its entry\s+or close the app/i);
+  assert.match(privacy, /Pictures\/Qask Attachments/);
   assert.match(guide, /当前应用会话/);
-  assert.match(guide, /主动移除或关闭 Qask 后会清除/);
-  assert.match(architecture, /仅保存在 renderer 内存/);
+  assert.match(guide, /Pictures\/Qask Attachments/);
+  assert.match(guide, /不会自动删除这些文件/);
+  assert.match(architecture, /附件队列保存在 renderer 内存/);
+  assert.match(architecture, /attachments:persist/);
   assert.doesNotMatch(guide, /直到你主动移除；它不会自动重试或自动清除/);
 });
 
@@ -236,9 +239,15 @@ test('application source has no GitHub integration, filesystem enumeration, or r
   assert.doesNotMatch(preload, /(?:ipcRenderer\.on\s*$|github|\.git)/i);
   assert.doesNotMatch(renderer, /(?:window\.qask\.(?:git|github)|navigator\.clipboard\.read|webkitdirectory|showDirectoryPicker)/i);
   assert.match(renderer, /function isRestrictedCustomProviderUrl\(url\)/);
-  assert.match(main, /nodeIntegration: false/);
-  assert.match(main, /contextIsolation: true/);
-  assert.match(main, /sandbox: true/);
+  // Scope the shell security flags to createMainWindow: a bare /nodeIntegration:
+  // false/ match could otherwise be satisfied by the guest hardening handler.
+  const shellStart = main.indexOf('function createMainWindow');
+  const shellEnd = main.indexOf('function isTrustedShellSender');
+  assert.ok(shellEnd > shellStart, 'createMainWindow slice boundaries are inverted');
+  const shellSource = main.slice(shellStart, shellEnd);
+  assert.match(shellSource, /nodeIntegration: false/);
+  assert.match(shellSource, /contextIsolation: true/);
+  assert.match(shellSource, /sandbox: true/);
   assert.match(main, /ipcMain\.handle\("attachments:inspect"/);
 });
 
@@ -651,18 +660,35 @@ test('layout lifecycle diagnostics are opt-in and omit message content', () => {
 
 test('local status and screenshot notifications do not log user paths or attachment names', () => {
   const renderer = readProjectFile('src/renderer.js');
-  const statusStart = renderer.indexOf('function logStatus');
+  const statusStart = renderer.indexOf('function appendStatusMessage');
   const statusEnd = renderer.indexOf('function closeModelAddDialog');
   const statusSource = renderer.slice(statusStart, statusEnd);
   const screenshotStart = renderer.indexOf('window.qask.screenshot.onSaved');
   const screenshotEnd = renderer.indexOf('window.qask.screenshot.onCancelled');
   const screenshotSource = renderer.slice(screenshotStart, screenshotEnd);
 
+  assert.ok(statusStart >= 0 && statusEnd > statusStart, 'status output is missing');
   assert.doesNotMatch(statusSource, /console\.log/);
-  assert.match(statusSource, /const method = level === "error" \? console\.error : console\.info/);
+  assert.match(statusSource, /item\.textContent = String\(message\)/);
+  assert.match(statusSource, /const method = normalizedLevel === "error"/);
+  assert.match(statusSource, /appendStatusMessage\(message, normalizedLevel\)/);
+  // The transcript is a DOM sink now, so it must never accept markup.
+  assert.doesNotMatch(statusSource, /innerHTML|insertAdjacentHTML|outerHTML/);
   assert.doesNotMatch(screenshotSource, /console\.(?:log|info|warn|error)\([^\n]*filePath/);
   assert.doesNotMatch(screenshotSource, /filePath\.split/);
   assert.match(screenshotSource, /logStatus\("截图已保存到本地", "success"\)/);
+});
+
+test('the shell renders a local, accessible status transcript above the composer', () => {
+  const html = readProjectFile('src/index.html');
+  const styles = readProjectFile('src/styles.css');
+
+  assert.match(html, /id="broadcastStatus"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(html, /id="broadcastStatusList"[^>]*aria-label="发送与页面状态"/);
+  assert.match(html, /id="broadcastStatusClear"[^>]*aria-label="清除状态消息"/);
+  assert.match(styles, /\.broadcast-status\s*\{/);
+  assert.match(styles, /\.broadcast-status-list li\[data-level="error"\]/);
+  assert.doesNotMatch(html, /id="broadcastResults"/);
 });
 
 test('screenshot notifications do not surface a local filename to the renderer', () => {
@@ -718,7 +744,7 @@ test('package exposes an Electron GUI layout smoke test rather than claiming sta
   const packageJson = JSON.parse(readProjectFile('package.json'));
   const smoke = readProjectFile('scripts/layout-ui-smoke.js');
 
-  assert.equal(packageJson.scripts['test:layout-ui'], 'electron scripts/layout-ui-smoke.js');
+  assert.equal(packageJson.scripts['test:layout-ui'], 'node scripts/run-layout-ui-smoke.js');
   assert.match(smoke, /BrowserWindow\.getAllWindows\(\)\[0\]/);
   assert.match(smoke, /layoutButton\.click\(\)/);
   assert.match(smoke, /getBoundingClientRect\(\)/);
@@ -779,7 +805,7 @@ test('provider guest navigation is enforced by the main-process allowlist and di
   assert.match(main, /getProviderNavigationPolicy\(contents\.session\)/);
   assert.match(main, /if \(!isAllowedProviderUrl\(policy, url\)\) \{[\s\S]*?event\.preventDefault\(\);/);
   assert.match(main, /function configureWebContents\(contents\) \{[\s\S]*?enforceProviderNavigation\(contents\);/);
-  assert.match(renderer, /if \(!isTrustedGuestUrl\(currentUrl, config\.allowedOrigins \|\| \[\]\)\)/);
+  assert.match(renderer, /if \(!isTrustedGuestUrl\(currentUrl, config\.injectableOrigins \|\| \[\]\)\)/);
   assert.match(renderer, /function buildOriginCheckExpression\(origins, originExpression = "location\.origin"\)/);
   assert.match(renderer, /const originCheck = buildOriginCheckExpression\(origins\);[\s\S]*?const isAllowedOrigin = \(\) => \$\{originCheck\};/);
 });
@@ -817,7 +843,7 @@ test('provider navigation preserves known first-party authentication origins', (
   assert.equal(isAllowedProviderUrl(kimiPolicy, 'https://kimi.moonshot.cn/'), true);
 });
 
-test('provider navigation policy is session-bound, exact-origin, and configured only once', () => {
+test('provider navigation policy is session-bound, exact-origin, and only re-pointed for custom sites', () => {
   const main = readProjectFile('main.js');
   const start = main.indexOf('const PROVIDER_PARTITION_PREFIX');
   const end = main.indexOf('function hasActiveMicrophoneLease');
@@ -851,13 +877,21 @@ test('provider navigation policy is session-bound, exact-origin, and configured 
   assert.ok(customPolicy);
   assert.equal(isAllowedProviderUrl(customPolicy, 'https://trusted.example/next'), true);
   assert.equal(isAllowedProviderUrl(customPolicy, 'https://elsewhere.example/'), false);
-  assert.equal(configureProviderSession('persist:custom-site', 'https://elsewhere.example/'), null);
-  assert.equal(isAllowedProviderUrl(customPolicy, 'https://elsewhere.example/'), false);
+  // A custom model may be removed and re-added under the same partition id; the
+  // custom policy is re-pointed instead of leaving a permanently blank panel.
+  const repointedSession = configureProviderSession('persist:custom-site', 'https://elsewhere.example/');
+  assert.ok(repointedSession);
+  const repointedPolicy = getProviderNavigationPolicy(repointedSession);
+  assert.equal(isAllowedProviderUrl(repointedPolicy, 'https://elsewhere.example/'), true);
+  assert.equal(isAllowedProviderUrl(repointedPolicy, 'https://trusted.example/'), false);
 
   const chatgptSession = configureProviderSession('persist:chatgpt', 'https://chatgpt.com/');
   const chatgptPolicy = getProviderNavigationPolicy(chatgptSession);
   assert.equal(isAllowedProviderUrl(chatgptPolicy, 'https://chatgpt.com/auth/login'), true);
   assert.equal(isAllowedProviderUrl(chatgptPolicy, 'https://attacker.example/'), false);
+  // Built-in origins are fixed: a different origin for the same partition is
+  // still refused.
+  assert.equal(configureProviderSession('persist:chatgpt', 'https://attacker.example/'), null);
   configureProviderSession('persist:chatgpt', 'https://chatgpt.com/');
   assert.equal(chatgptSession.downloadListeners, 1);
   assert.equal(chatgptSession.permissionChecks, 1);
@@ -903,10 +937,15 @@ test('documented localStorage keys match actual retained state', () => {
   assert.doesNotMatch(renderer, /panelModels:\s*"qask\.panelModels"/);
   assert.doesNotMatch(renderer, /function persistPanelSelections\(/);
   assert.match(renderer, /"qask\.panelModels",/);
-  assert.match(privacy, /layout selection, website ordering, and custom\s+website labels\/URLs/);
+  assert.match(privacy, /layout selection, website ordering, custom\s+website labels\/URLs, removed default website ids/);
+  assert.match(privacy, /appearance preference/);
+  assert.match(privacy, /local settings/);
   assert.match(architecture, /`qask\.layout`/);
   assert.match(architecture, /`qask\.modelOrder`/);
   assert.match(architecture, /`qask\.customModels`/);
+  assert.match(architecture, /`qask\.hiddenDefaultModels`/);
+  assert.match(architecture, /`qask\.settings`/);
+  assert.match(architecture, /`qask\.theme`/);
   assert.doesNotMatch(architecture, /`qask\.panelModels`/);
 });
 
@@ -921,7 +960,13 @@ test('custom webpage models require explicit confirmation before they can auto-s
 test('text-only webview dispatch reports attempted auto-send separately from input fill', () => {
   const renderer = readProjectFile('src/renderer.js');
 
-  assert.match(renderer, /const attemptedCount = results\.filter\(\(result\) => result\.attemptedAutoSend === true\)/);
+  assert.match(renderer, /const summary = summarizeBroadcastResults\(results\);/);
+  // The summary must be wired to the same named counters the messages report;
+  // a wrong mapping (for example summary.filled) would otherwise pass silently.
+  assert.match(renderer, /const attemptedCount = summary\.attemptedAutoSend;/);
+  assert.match(renderer, /const filledCount = summary\.filled;/);
+  assert.match(renderer, /const errorCount = summary\.failed;/);
+  assert.match(renderer, /attemptedAutoSend: entries\.filter\(\(entry\) => entry\?\.attemptedAutoSend === true\)\.length/);
   assert.match(renderer, /已尝试触发 \$\{attemptedCount\} 个网页发送/);
   assert.match(renderer, /已填充 \$\{filledCount\} 个网页输入框，请在网页中确认发送/);
   assert.doesNotMatch(renderer, /成功发送到 \$\{successCount\} 个模型/);
@@ -1060,7 +1105,9 @@ test('custom model registration rejects GitHub web properties before persistent 
 
 test('saved custom provider entries are revalidated and unsafe entries are removed from local storage', () => {
   const renderer = readProjectFile('src/renderer.js');
-  const start = renderer.indexOf('DEFAULT_MODELS.forEach');
+  // The startup hydration block is the last DEFAULT_MODELS.forEach; the earlier
+  // one lives in restoreDefaultModels().
+  const start = renderer.lastIndexOf('DEFAULT_MODELS.forEach');
   const end = renderer.indexOf('modelOrder = normalizeModelOrder', start);
   const hydrationSource = renderer.slice(start, end);
 
@@ -1094,7 +1141,9 @@ test('the composer defers sending until a recording is finalized', () => {
   assert.match(renderer, /function getBroadcastBlockReason\(/);
   assert.match(renderer, /const broadcastBlockReason = getBroadcastBlockReason\(\);/);
   assert.match(renderer, /if \(broadcastBlockReason\) \{/);
-  assert.match(renderer, /isBroadcasting \|\| getBroadcastBlockReason\(\)/);
+  assert.match(renderer, /if \(isBroadcasting\) return;/);
+  assert.match(renderer, /const blockReason = getBroadcastBlockReason\(\);/);
+  assert.match(renderer, /logStatus\(blockReason, "info"\)/);
   assert.match(renderer, /请先停止或取消录音，再发送消息/);
 });
 
@@ -1236,4 +1285,140 @@ test('the layout smoke job repairs the Linux sandbox helper instead of disabling
   assert.doesNotMatch(workflow, /--no-sandbox|ELECTRON_DISABLE_SANDBOX/);
   assert.match(workflow, /npm run test:layout-ui/);
   assert.doesNotMatch(smoke, /--no-sandbox/);
+});
+
+
+test('a failed or crashed guest offers a reload action instead of a dead panel', () => {
+  const renderer = readProjectFile('src/renderer.js');
+  const styles = readProjectFile('src/styles.css');
+  const guide = readProjectFile('docs/user-guide.md');
+
+  assert.match(renderer, /className = "panel-state-overlay"/);
+  assert.match(renderer, /function reloadPanel\(panelState\)/);
+  assert.match(renderer, /reloadButton\.addEventListener\("click", \(\) => reloadPanel\(panelState\)\)/);
+  assert.match(renderer, /webview\.addEventListener\("render-process-gone"/);
+  assert.match(renderer, /dispatchCoordinator\.reset\(webview\)/);
+  assert.match(renderer, /showPanelStateOverlay\(panelState, `\$\{config\.label\} 加载失败/);
+  assert.match(renderer, /showPanelStateOverlay\(panelState, `\$\{config\.label\} 页面进程已退出/);
+  assert.match(styles, /\.panel-state-overlay/);
+  assert.match(guide, /重新加载/);
+  // The overlay text is page-independent local copy, never page-derived.
+  assert.doesNotMatch(renderer, /stateText\.innerHTML/);
+});
+
+
+test('the source version, lockfile root version, and published-preview wording agree', () => {
+  const readme = readProjectFile('README.md');
+  const security = readProjectFile('SECURITY.md');
+  const packageJson = JSON.parse(readProjectFile('package.json'));
+  const packageLock = JSON.parse(readProjectFile('package-lock.json'));
+
+  assert.equal(packageJson.version, packageLock.version);
+  assert.equal(packageJson.version, packageLock.packages[''].version);
+  assert.match(readme, new RegExp(`Version ${packageJson.version.replace(/\./g, '\\.')} adds a \\*\\*Windows x64 preview\\*\\*`));
+  assert.doesNotMatch(readme, /The DMG is signed, notarized, and stapled/);
+  assert.match(readme, /The DMG itself is not code-signed/);
+  assert.match(security, /preview/i);
+  assert.doesNotMatch(security, /Packaged\s+releases are not yet published or supported/);
+});
+
+
+test('layout shortcuts skip editable fields, IME composition, and key repeat', () => {
+  const renderer = readProjectFile('src/renderer.js');
+  const helpStart = renderer.indexOf('function showShortcutHelp');
+  const helpEnd = renderer.indexOf('// 更新日期时间显示');
+  const helpSource = renderer.slice(helpStart, helpEnd);
+
+  assert.ok(helpStart >= 0 && helpEnd > helpStart, 'shortcut help is missing');
+  assert.match(renderer, /function isEditableShortcutTarget\(target\)/);
+  assert.match(renderer, /target\.closest\('input, textarea, select, \[contenteditable="true"\]'\)/);
+  assert.match(renderer, /event\.repeat \|\| event\.isComposing/);
+  assert.match(renderer, /if \(isEditableShortcutTarget\(event\.target\)\) \{/);
+  assert.match(renderer, /if \(isModelAddDialogOpen\(\) \|\| isComparisonDialogOpen\(\)\)/);
+  // Help used to promise Ctrl/Cmd+Enter, which was never implemented.
+  assert.doesNotMatch(helpSource, /Ctrl\/Cmd \+ Enter/);
+  assert.match(helpSource, /Enter：发送消息/);
+  assert.match(helpSource, /Alt \+ ←\/→/);
+  assert.doesNotMatch(helpSource, /alert\(/);
+});
+
+test('narrow windows keep the sidebar in flow instead of covering the workspace', () => {
+  const styles = readProjectFile('src/styles.css');
+  const narrowStart = styles.indexOf('@media (max-width: 1320px)');
+  const narrowEnd = styles.indexOf('@media (max-width: 768px)');
+
+  assert.ok(narrowStart >= 0 && narrowEnd > narrowStart, 'narrow layout block is missing');
+  const narrow = styles.slice(narrowStart, narrowEnd);
+  assert.doesNotMatch(narrow, /position:\s*absolute/);
+  assert.match(narrow, /\.control-panel\s*\{/);
+});
+
+
+test('persisted custom models cannot shadow built-ins or smuggle another partition', () => {
+  const renderer = readProjectFile('src/renderer.js');
+
+  assert.match(renderer, /const DEFAULT_MODEL_IDS = new Set\(DEFAULT_MODELS\.map/);
+  assert.match(renderer, /if \(DEFAULT_MODEL_IDS\.has\(model\.id\) \|\| !\/\^\[a-z0-9\\u4e00-\\u9fa5-\]\+\$\/i\.test\(model\.id\)\)/);
+  assert.match(renderer, /partition: origin === "default" \? model\.partition : `persist:\$\{model\.id\}`/);
+  // Drag-handle focus must not interpolate a stored id into a CSS selector.
+  assert.match(renderer, /function getModelDragHandle\(modelId\)/);
+  assert.doesNotMatch(renderer, /querySelector\(`\[data-model-id="\$\{/);
+});
+
+
+test('prompt injection uses a narrower allowlist than provider navigation', () => {
+  const renderer = readProjectFile('src/renderer.js');
+  const main = readProjectFile('main.js');
+
+  assert.match(renderer, /const AUTH_ONLY_ORIGINS = new Set\(/);
+  assert.match(renderer, /function getInjectableOrigins\(model\)/);
+  assert.match(renderer, /normalized\.injectableOrigins = getInjectableOrigins\(normalized\)/);
+  assert.match(renderer, /if \(!isTrustedGuestUrl\(currentUrl, config\.injectableOrigins/);
+  assert.match(renderer, /config\.injectableOrigins \|\| \[\]/);
+  assert.doesNotMatch(renderer, /isTrustedGuestUrl\(currentUrl, config\.allowedOrigins/);
+  // Navigation still needs the auth origins, so main keeps its wider allowlist.
+  assert.match(main, /PROVIDER_ORIGIN_ALLOWLIST/);
+  assert.match(main, /auth\.openai\.com/);
+});
+
+
+test('every managed website is removable and defaults can be restored', () => {
+  const renderer = readProjectFile('src/renderer.js');
+  const html = readProjectFile('src/index.html');
+  const main = readProjectFile('main.js');
+
+  // All rows share one delete control now, including built-ins.
+  assert.match(renderer, /deleteButton\.addEventListener\("click", \(\) => removeModel\(model\.id\)\)/);
+  assert.doesNotMatch(renderer, /deleteButton\.hidden = !removable/);
+  assert.match(renderer, /hiddenDefaultModelIds\.add\(modelId\)/);
+  assert.match(renderer, /persistHiddenDefaultModels\(\)/);
+  assert.match(renderer, /function restoreDefaultModels\(\)/);
+  assert.match(renderer, /modelRestoreDefaultsButton\.hidden = count === 0/);
+  assert.match(html, /id="modelRestoreDefaultsButton"/);
+  assert.match(renderer, /panelState\.root\.setAttribute\("aria-label", `\$\{config\.label\} 网页面板`\)/);
+  assert.match(renderer, /logStatus\("正在录音（最长 2 分钟）；点击停止或取消结束", "info"\)/);
+  assert.match(renderer, /logStatus\("录音已停止，正在保存本地文件", "info"\)/);
+  assert.match(renderer, /logStatus\("已取消录音，未保留任何音频", "info"\)/);
+  assert.match(renderer, /logStatus\(blockReason, "info"\)/);
+  assert.match(renderer, /keyboardDraggedModelId = null;\s+keyboardDraggedOriginalOrder = null;\s+draggedModelId = model\.id;/);
+  assert.match(renderer, /getModelDragHandle\(movedModelId\)\?\.focus\(\)/);
+  assert.match(main, /if \(!hasSingleInstanceLock\) \{\s+return;\s+\}/);
+});
+
+test('the launcher resolves the app from its own location and notarization is platform explicit', () => {
+  const launcher = readProjectFile('scripts/run-electron.js');
+  const notarize = readProjectFile('scripts/notarize-mac.cjs');
+
+  assert.match(launcher, /const appPath = path\.resolve\(__dirname, "\.\."\)/);
+  assert.match(launcher, /appArgs\.push\(appPath\)/);
+  assert.doesNotMatch(launcher, /ELECTRON_DISABLE_GPU/);
+  assert.match(notarize, /process\.platform !== 'darwin'/);
+  assert.match(notarize, /process\.env\.QASK_MAC_ARCH \|\| 'arm64'/);
+});
+
+test('public source verification requires every runtime module and the launcher', () => {
+  const verify = readProjectFile('scripts/verify-public-source.cjs');
+
+  assert.match(verify, /'local-data-boundary\.cjs'/);
+  assert.match(verify, /'scripts\/run-electron\.js'/);
 });

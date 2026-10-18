@@ -47,10 +47,13 @@ const requiredFiles = [
   'CONTRIBUTING.md',
   'COMMERCIAL-LICENSE.md',
   'main.js',
+  'local-data-boundary.cjs',
   'preload.js',
+  'scripts/run-electron.js',
   'src/index.html',
   'src/renderer.js',
   'src/styles.css',
+  'src/theme-init.js',
 ];
 for (const filePath of requiredFiles) {
   assert.ok(packedFiles.includes(filePath), `required source file is missing from npm pack: ${filePath}`);

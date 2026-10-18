@@ -8,8 +8,14 @@ const { spawnSync } = require('node:child_process');
 const projectRoot = path.resolve(__dirname, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
 const profile = process.env.APPLE_KEYCHAIN_PROFILE || 'QaskNotary';
-const artifactName = `Qask-${packageJson.version}-arm64.dmg`;
+const macArch = process.env.QASK_MAC_ARCH || 'arm64';
+const artifactName = `Qask-${packageJson.version}-${macArch}.dmg`;
 const artifactPath = path.join(projectRoot, 'dist', artifactName);
+
+if (process.platform !== 'darwin') {
+  console.error('macOS notarization requires xcrun/stapler/hdiutil; run this on macOS.');
+  process.exit(1);
+}
 
 function run(command, args) {
   const result = spawnSync(command, args, {

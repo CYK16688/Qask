@@ -136,7 +136,46 @@ function isRestrictedCustomProviderUrl(value) {
   }
 }
 
+const ATTACHMENT_EXTENSION_BY_KIND = {
+  image: '.png',
+  audio: '.webm',
+  document: '.pdf',
+};
+
+// Only extensions the queue advertises are kept. Anything else falls back to the
+// kind's canonical suffix, so a recording or pasted image never lands on disk as
+// an executable or an unopenable intermediate file.
+const ATTACHMENT_ALLOWED_EXTENSIONS = {
+  image: new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']),
+  audio: new Set(['.webm', '.ogg', '.mp3', '.wav', '.m4a', '.aac', '.flac']),
+  document: new Set(['.pdf']),
+};
+
+// The renderer and main process both need a safe basename for files Qask writes
+// itself (recordings and pasted images). Keep it a pure function so the rule can
+// be tested without an Electron runtime.
+function sanitizeAttachmentFileName(name, kind = '') {
+  const raw = String(name || '').split(/[\\/]/).pop() || '';
+  const rawExtension = path.extname(raw).toLowerCase();
+  const rawBase = rawExtension && raw.toLowerCase().endsWith(rawExtension)
+    ? raw.slice(0, raw.length - rawExtension.length)
+    : raw;
+  const safeBase = rawBase
+    .normalize('NFC')
+    .replace(/[^\p{L}\p{N}._ -]+/gu, '-')
+    .replace(/^[.\s-]+|[.\s-]+$/g, '')
+    .slice(0, 64)
+    || (kind === 'audio' ? 'qask-recording' : kind === 'image' ? 'qask-image' : 'qask-attachment');
+  const allowedExtensions = ATTACHMENT_ALLOWED_EXTENSIONS[kind];
+  const safeExtension = allowedExtensions?.has(rawExtension)
+    ? rawExtension
+    : ATTACHMENT_EXTENSION_BY_KIND[kind] || '.bin';
+  return `${safeBase}${safeExtension}`;
+}
+
 module.exports = {
   inspectAttachmentPath,
   isRestrictedCustomProviderUrl,
+  sanitizeAttachmentFileName,
+  ATTACHMENT_EXTENSION_BY_KIND,
 };

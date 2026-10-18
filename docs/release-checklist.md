@@ -9,6 +9,10 @@ publishing a source release or binary release.
   login is `CYK16688`; use that exact casing in new links and metadata).
 - Confirm the release commit is on `main` and the working tree contains no
   untracked local worktrees, profiles, credentials, or build output.
+- Bump `package.json` and the root `package-lock.json` version **before** running
+  `npm run package:mac`; never rebuild an existing version over a published
+  release asset. The current `main` version is 1.0.3 while the published preview
+  artifact is 1.0.2.
 - Confirm CI on the release commit is green, including the `layout-ui` job.
 - Enable GitHub Private Vulnerability Reporting in the repository settings.
 - Open the [private vulnerability report form](https://github.com/CYK16688/Qask/security/advisories/new)

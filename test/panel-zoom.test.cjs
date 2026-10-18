@@ -116,7 +116,7 @@ test('embedded webpages have no Qask panel header and webview zoom is applied af
   assert.doesNotMatch(userGuide, /刷新图标和缩放控件/);
   assert.doesNotMatch(userGuide, /每个面板顶部只显示当前模型名称/);
   assert.match(renderer, /webview\.addEventListener\("dom-ready", \(\) => \{[\s\S]*applyPanelZoom\(panelState\)/);
-  assert.match(renderer, /const currentUrl = webview\.getURL\?\.\(\) \|\| "";[\s\S]*?if \(!isTrustedGuestUrl\(currentUrl, config\.allowedOrigins \|\| \[\]\)\) \{[\s\S]*?return;/);
+  assert.match(renderer, /const currentUrl = webview\.getURL\?\.\(\) \|\| "";[\s\S]*?if \(!isTrustedGuestUrl\(currentUrl, config\.injectableOrigins \|\| \[\]\)\) \{[\s\S]*?return;/);
   assert.doesNotMatch(styles, /\.panels-container\s*\{[\s\S]*?transition:\s*grid-template-columns/);
 });
 
@@ -146,10 +146,16 @@ test('ordinary webview loading activity does not revoke a ready panel between co
   const lifecycle = renderer.slice(lifecycleStart, lifecycleEnd);
 
   assert.notEqual(lifecycleStart, -1, 'did-start-loading listener is missing');
+  // A swapped listener order would otherwise produce an empty slice and let the
+  // negative assertion below pass without testing anything.
+  assert.ok(lifecycleEnd > lifecycleStart, 'did-finish-load listener must follow did-start-loading');
+  assert.ok(lifecycle.length > 0, 'loading lifecycle slice is empty');
   assert.doesNotMatch(lifecycle, /updatePanelLoadState\(panelState, "start"\)/);
   const navigationStart = renderer.indexOf('webview.addEventListener("did-start-navigation"');
   const navigationEnd = renderer.indexOf('webview.addEventListener("did-start-loading"');
   const navigation = renderer.slice(navigationStart, navigationEnd);
+  assert.ok(navigationEnd > navigationStart, 'did-start-loading listener must follow did-start-navigation');
+  assert.ok(navigation.length > 0, 'navigation lifecycle slice is empty');
   assert.match(navigation, /event\.isMainFrame/);
   assert.match(navigation, /event\.isInPlace/);
   assert.match(navigation, /updatePanelLoadState\(panelState, "start"\)/);

@@ -1,11 +1,14 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, session, systemPreferences } = require("electron");
+const { app, BrowserWindow, ipcMain, globalShortcut, session, systemPreferences, shell, nativeTheme } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
+const { pathToFileURL } = require("node:url");
 const { randomUUID } = require("node:crypto");
 const Screenshots = require("electron-screenshots");
-const { inspectAttachmentPath } = require("./local-data-boundary.cjs");
+const { inspectAttachmentPath, sanitizeAttachmentFileName } = require("./local-data-boundary.cjs");
 
-const QASK_SHELL_URL = new URL(`file://${path.join(__dirname, "src", "index.html")}`).toString();
+// pathToFileURL keeps the trusted-shell URL valid on Windows (`C:\...`),
+// where string-concatenated file URLs do not match the renderer frame URL.
+const QASK_SHELL_URL = pathToFileURL(path.join(__dirname, "src", "index.html")).toString();
 const PROVIDER_PARTITION_PREFIX = "persist:";
 const MICROPHONE_LEASE_DURATION_MS = 30_000;
 const PROVIDER_ORIGIN_ALLOWLIST = {
@@ -109,7 +112,17 @@ function configureProviderSession(partition, initialUrl) {
   const providerSession = session.fromPartition(partition);
   const existingPolicy = getProviderNavigationPolicy(providerSession);
   if (existingPolicy) {
-    return policiesMatch(existingPolicy, nextPolicy) ? providerSession : null;
+    if (policiesMatch(existingPolicy, nextPolicy)) {
+      return providerSession;
+    }
+    // A custom model can be removed and re-added with a different origin while
+    // the process keeps the same partition. Re-point the custom policy instead
+    // of permanently refusing to attach; built-in policies stay fixed.
+    if (existingPolicy.isCustom && nextPolicy.isCustom) {
+      providerSessionPolicies.set(providerSession, nextPolicy);
+      return providerSession;
+    }
+    return null;
   }
 
   providerSession.setPermissionCheckHandler(() => false);
@@ -130,6 +143,12 @@ function hasActiveMicrophoneLease() {
   return true;
 }
 
+// A recording can legitimately run for two minutes, so a start lease cannot be
+// a fixed 30 s window: Chromium re-checks the media permission whenever it
+// opens another audio stream, and a lease that silently expires mid-recording
+// turns a device change or re-negotiation into a bogus "无法访问麦克风".
+// The lease keeps a short window (so an abandoned lease self-heals) but the
+// shell renews it while a recording session is live.
 function grantMicrophoneLease() {
   const leaseId = randomUUID();
   microphoneLease = {
@@ -137,6 +156,19 @@ function grantMicrophoneLease() {
     expiresAt: Date.now() + MICROPHONE_LEASE_DURATION_MS,
   };
   return leaseId;
+}
+
+// Extends only the lease that is currently held, so a stale renderer cannot
+// keep the microphone alive after the owning session released it.
+function renewMicrophoneLease(leaseId) {
+  if (typeof leaseId !== "string" || leaseId !== microphoneLease?.id) {
+    return false;
+  }
+  if (Date.now() >= microphoneLease.expiresAt) {
+    return false;
+  }
+  microphoneLease.expiresAt = Date.now() + MICROPHONE_LEASE_DURATION_MS;
+  return true;
 }
 
 function revokeMicrophoneLease(leaseId) {
@@ -234,7 +266,7 @@ function createMainWindow() {
     height: 900,
     minWidth: 1200,
     minHeight: 720,
-    title: "Qask Multi-Agent Bridge",
+    title: "Qask",
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -319,6 +351,76 @@ function saveScreenshot(buffer) {
   return filePath;
 }
 
+const ATTACHMENT_SAVE_DIR_NAME = "Qask Attachments";
+const ATTACHMENT_SAVE_LIMITS = {
+  image: 5 * 1024 * 1024,
+  audio: 10 * 1024 * 1024,
+  document: 10 * 1024 * 1024,
+};
+
+function getAttachmentSaveDirectory() {
+  return path.join(app.getPath("pictures"), ATTACHMENT_SAVE_DIR_NAME);
+}
+
+function toAttachmentBytes(value) {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  return null;
+}
+
+// Recordings and pasted images only exist in renderer memory unless Qask writes
+// them somewhere the user can pick from a website's own upload dialog. The main
+// process is the only writer, and it accepts bytes only from the trusted shell.
+function persistShellAttachment(event, payload) {
+  if (!isTrustedShellSender(event)) {
+    return { saved: false, reason: "untrusted-sender" };
+  }
+  const kind = payload?.kind;
+  const limit = ATTACHMENT_SAVE_LIMITS[kind];
+  if (!limit) {
+    return { saved: false, reason: "unsupported-kind" };
+  }
+  const bytes = toAttachmentBytes(payload?.buffer);
+  if (!bytes || bytes.length === 0 || bytes.length > limit) {
+    return { saved: false, reason: "invalid-size" };
+  }
+  try {
+    const saveDirectory = getAttachmentSaveDirectory();
+    fs.mkdirSync(saveDirectory, { recursive: true });
+    const safeName = sanitizeAttachmentFileName(payload?.name, kind);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const fileName = `${timestamp}-${randomUUID().slice(0, 8)}-${safeName}`;
+    const filePath = path.join(saveDirectory, fileName);
+    fs.writeFileSync(filePath, bytes, { flag: "wx" });
+    const relativePath = path.relative(app.getPath("home"), filePath).split(path.sep).join("/");
+    return {
+      saved: true,
+      fileName,
+      displayPath: `~/${relativePath}`,
+    };
+  } catch (error) {
+    console.error("Unable to save attachment", error?.code || "unknown");
+    return { saved: false, reason: "write-failed" };
+  }
+}
+
+function revealShellAttachment(event, fileName) {
+  if (!isTrustedShellSender(event)) {
+    return false;
+  }
+  if (typeof fileName !== "string" || !fileName || path.basename(fileName) !== fileName) {
+    return false;
+  }
+  const saveDirectory = getAttachmentSaveDirectory();
+  const filePath = path.join(saveDirectory, fileName);
+  if (path.dirname(filePath) !== saveDirectory || !fs.existsSync(filePath)) {
+    return false;
+  }
+  shell.showItemInFolder(filePath);
+  return true;
+}
+
 app.on("web-contents-created", (_event, contents) => {
   configureWebContents(contents);
 });
@@ -334,6 +436,9 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) {
+    return;
+  }
   configureShellSession();
   createMainWindow();
 
@@ -381,6 +486,16 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => globalShortcut.unregisterAll());
 
+ipcMain.handle("theme:set", (event, mode) => {
+  if (!isTrustedShellSender(event)) {
+    return { mode: null, effective: null };
+  }
+  nativeTheme.themeSource = mode === "dark" || mode === "light" ? mode : "system";
+  return {
+    mode: nativeTheme.themeSource,
+    effective: nativeTheme.shouldUseDarkColors ? "dark" : "light",
+  };
+});
 ipcMain.handle("microphone:request-access", requestMicrophoneAccess);
 ipcMain.handle("microphone:release-access", (event, leaseId) => {
   if (!isTrustedShellSender(event)) {
@@ -388,12 +503,20 @@ ipcMain.handle("microphone:release-access", (event, leaseId) => {
   }
   return revokeMicrophoneLease(leaseId);
 });
+ipcMain.handle("microphone:renew-access", (event, leaseId) => {
+  if (!isTrustedShellSender(event)) {
+    return false;
+  }
+  return renewMicrophoneLease(leaseId);
+});
 ipcMain.handle("attachments:inspect", (event, filePath) => {
   if (!isTrustedShellSender(event)) {
     return { allowed: false, reason: "untrusted-sender" };
   }
   return inspectShellAttachmentPath(filePath);
 });
+ipcMain.handle("attachments:persist", persistShellAttachment);
+ipcMain.handle("attachments:reveal", revealShellAttachment);
 
 ipcMain.on("take-screenshot", (event) => {
   if (!isTrustedShellSender(event) || !screenshots) {

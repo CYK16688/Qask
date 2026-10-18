@@ -30,8 +30,18 @@ Only the following data can be offered to a third-party AI website:
    picker, paste as an image, or record through the explicit microphone action,
    but only when you separately use that website's own visible upload interface.
 
+When you ask Qask to compare answers, it reads the visible answer text from
+your active provider panels into Qask's renderer memory. Those extracted
+answers are not sent anywhere unless you choose “AI 总结差异”; that action
+sends the collected answers to the provider you selected as the summarizer,
+only after you confirm. The summarizer's reply becomes part of that provider's
+own conversation and is subject to that provider's policies.
+
 A Qask attachment queue remains in renderer memory until you remove its entry
-or close the app; it is not transmitted by Qask to a provider. For files
+or close the app; it is not transmitted by Qask to a provider. Recordings and
+images you paste are written by the main process to
+`~/Pictures/Qask Attachments/` so that you can choose them in a website's own
+upload dialog. Files you select from disk are not copied. For files
 selected from disk, Qask resolves and verifies the selected regular file
 in the trusted main process before it joins the local queue. It rejects hidden
 files, `.git` paths, protected home-directory credential locations, Qask's own
@@ -54,15 +64,23 @@ accept that provider's terms and privacy policy.
 
 - Electron provider partitions retain each website's local browser session,
   including login cookies and site cache, on this device.
-- Qask localStorage retains only layout selection, website ordering, and custom
-  website labels/URLs.
-- Local attachments, recordings, attachment paths, and microphone status are
-  not intentionally persisted in Qask localStorage.
+- Qask localStorage retains only layout selection, website ordering, custom
+  website labels/URLs, removed default website ids (used by “restore default
+  websites”), the appearance preference (system/dark/light), and local settings
+  (shortcuts, default send mode, default comparison model, status-bar visibility).
+  Queued messages are held in memory only and are discarded when Qask exits.
+- The attachment queue and microphone status are not intentionally persisted in
+  Qask localStorage. Recordings and pasted images are stored as ordinary files
+  in `~/Pictures/Qask Attachments/`; Qask does not index or upload them.
+- Answers read for the comparison view and a generated summary stay in
+  renderer memory for the current session. Qask does not write extracted
+  answers to disk, `localStorage`, or any Qask file.
 - A user-requested screenshot is stored locally in `~/Pictures/Qask Screenshots/`.
 
 Clear Qask application data and the relevant provider partitions to remove
 local website sessions and Qask settings. Delete screenshots from the Pictures
-folder separately.
+folder and recordings/pasted images from `~/Pictures/Qask Attachments/`
+separately.
 
 ## Security limits
 

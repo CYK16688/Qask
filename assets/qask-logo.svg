@@ -1,15 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">Qask logo</title>
-  <desc id="desc">A geometric Q-shaped conversation mark with three connected model nodes.</desc>
-  <rect width="1024" height="1024" rx="224" fill="#111827"/>
-  <rect x="20" y="20" width="984" height="984" rx="204" fill="none" stroke="#2B3A50" stroke-width="16"/>
+  <desc id="desc">A white Q monogram on a deep ink tile, holding three colored answer bars for multi-model comparison.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1D1233"/>
+      <stop offset="0.55" stop-color="#0D0B16"/>
+      <stop offset="1" stop-color="#07080D"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.38" r="0.55">
+      <stop offset="0" stop-color="#7C3AED" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#7C3AED" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0.15" y1="0.05" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.6" stop-color="#F1EDFF"/>
+      <stop offset="1" stop-color="#C4B5FD"/>
+    </linearGradient>
+    <linearGradient id="tail" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EDE9FE"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7DD3FC"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
 
-  <path d="M318 292 512 218 706 292" fill="none" stroke="#56CCFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="318" cy="292" r="34" fill="#FFB86B"/>
-  <circle cx="512" cy="218" r="34" fill="#56CCFF"/>
-  <circle cx="706" cy="292" r="34" fill="#5BE7C4"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <circle cx="512" cy="430" r="380" fill="url(#glow)"/>
+  <rect x="18" y="18" width="988" height="988" rx="212" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
 
-  <circle cx="492" cy="504" r="232" fill="#111827" stroke="#F4F8FF" stroke-width="72"/>
-  <path d="m603 652 154 154" fill="none" stroke="#5BE7C4" stroke-width="72" stroke-linecap="round"/>
-  <circle cx="492" cy="504" r="25" fill="#FFB86B"/>
+  <g fill="none" stroke-linecap="round">
+    <circle cx="492" cy="470" r="230" stroke="url(#ring)" stroke-width="106"/>
+    <path d="M615 650 762 797" stroke="url(#tail)" stroke-width="106"/>
+  </g>
+
+  <g>
+    <rect x="401" y="420" width="54" height="140" rx="27" fill="url(#violet)"/>
+    <rect x="485" y="360" width="54" height="250" rx="27" fill="url(#cyan)"/>
+    <rect x="569" y="400" width="54" height="180" rx="27" fill="url(#amber)"/>
+  </g>
 </svg>

@@ -2,8 +2,10 @@
 
 ## Supported source line
 
-Security fixes are prepared against the current `main` source line. Packaged
-releases are not yet published or supported.
+Security fixes are prepared against the current `main` source line. The
+project publishes a signed and notarized macOS arm64 **preview** DMG for
+evaluation; it is not a production-supported release, and the latest source on
+`main` may be newer than the published preview.
 
 ## Reporting a vulnerability
 

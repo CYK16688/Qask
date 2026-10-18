@@ -11,7 +11,7 @@ const createOrderHarness = () => {
   const end = renderer.indexOf('function clampPanelZoom');
   assert.notEqual(start, -1, 'model order helpers are missing');
   assert.notEqual(end, -1, 'model order helper boundary is missing');
-  return new Function(`${renderer.slice(start, end)}\nreturn { getAdjustedDropTargetIndex, getPanelPlacementPlan, getPanelPoolPlacement, getRankedModelIds, moveModelOrder, normalizeModelOrder };`)();
+  return new Function(`${renderer.slice(start, end)}\nreturn { getAdjustedDropTargetIndex, getPanelPoolPlacement, getRankedModelIds, moveModelOrder, normalizeModelOrder };`)();
 };
 
 test('model order normalizes persisted IDs and appends available sites once', () => {
@@ -46,40 +46,6 @@ test('dropping after a lower row accounts for removal before insertion', () => {
   const beforeChatGPT = getAdjustedDropTargetIndex(order, 'claude', 0);
   assert.equal(beforeChatGPT, 0);
   assert.deepEqual(moveModelOrder(order, 'claude', beforeChatGPT), ['claude', 'chatgpt', 'gemini', 'doubao']);
-});
-
-test('placement moves existing panel roots and uses only a dropped slot for a new ranked site', () => {
-  const { getPanelPlacementPlan } = createOrderHarness();
-
-  assert.deepEqual(
-    getPanelPlacementPlan(['chatgpt', 'gemini', 'doubao'], ['gemini', 'chatgpt', 'doubao'], 3),
-    [
-      { action: 'move', index: 0, modelId: 'gemini', sourceIndex: 1, panelIndex: 1 },
-      { action: 'move', index: 1, modelId: 'chatgpt', sourceIndex: 0, panelIndex: 0 },
-      { action: 'keep', index: 2, modelId: 'doubao', sourceIndex: 2, panelIndex: 2 },
-    ],
-  );
-
-  assert.deepEqual(
-    getPanelPlacementPlan(['chatgpt', 'gemini', 'doubao'], ['kimi', 'chatgpt', 'gemini'], 3),
-    [
-      { action: 'load', index: 0, modelId: 'kimi', panelIndex: 2 },
-      { action: 'move', index: 1, modelId: 'chatgpt', sourceIndex: 0, panelIndex: 0 },
-      { action: 'move', index: 2, modelId: 'gemini', sourceIndex: 1, panelIndex: 1 },
-    ],
-  );
-});
-
-test('shrinking a layout preserves existing panel assignments for later expansion', () => {
-  const { getPanelPlacementPlan } = createOrderHarness();
-
-  assert.deepEqual(
-    getPanelPlacementPlan(['chatgpt', 'gemini', 'doubao', 'claude'], ['chatgpt', 'gemini', 'doubao', 'claude'], 2),
-    [
-      { action: 'keep', index: 0, modelId: 'chatgpt', sourceIndex: 0, panelIndex: 0 },
-      { action: 'keep', index: 1, modelId: 'gemini', sourceIndex: 1, panelIndex: 1 },
-    ],
-  );
 });
 
 test('panel pool reactivates a parked matching website before replacing a guest', () => {
@@ -241,8 +207,8 @@ test('sidebar exposes drag-only ordering and highlights the ranked active window
 });
 
 test('keyboard pickup retains focus on the recreated drag handle', () => {
-  assert.match(renderer, /const selectedHandle = modelList\.querySelector\(`\[data-model-id="\$\{model\.id\}"\] \.model-drag-handle`\)/);
-  assert.match(renderer, /selectedHandle\?\.focus\(\)/);
+  assert.match(renderer, /function getModelDragHandle\(modelId\)/);
+  assert.match(renderer, /getModelDragHandle\(model\.id\)\?\.focus\(\)/);
 });
 
 test('keyboard drag can be cancelled even after focus leaves its handle', () => {

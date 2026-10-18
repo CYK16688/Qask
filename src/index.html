@@ -1,9 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Qask Multi-Agent Bridge MVP</title>
+  <title>Qask</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self';">
+  <script src="./theme-init.js"></script>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -41,8 +42,17 @@
           </div>
 
           <!-- 截图按钮 -->
-          <button class="collapsed-action-btn" id="screenshotBtn" data-tooltip="截图" title="截取当前对话">
-            <span>📸</span>
+          <button class="collapsed-action-btn" id="screenshotBtn" data-tooltip="截图" title="截取当前对话" aria-label="截图">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 8.5h3l1.4-2h7.2l1.4 2h3a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1Z"/>
+              <circle cx="12" cy="13.5" r="3.2"/>
+            </svg>
+          </button>
+          <button class="collapsed-action-btn" id="collapsedSettingsButton" data-tooltip="设置" title="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="3.2"/>
+                            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.12.55.58 1 1.15 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/>
+                          </svg>
           </button>
         </div>
         <section class="panel-section">
@@ -62,6 +72,14 @@
             </button>
           </div>
         </section>
+        <section class="panel-section theme-section">
+          <header><h2>外观</h2></header>
+          <div id="themeSwitcher" class="theme-switcher" role="group" aria-label="外观主题">
+            <button type="button" class="theme-option" data-theme-mode="system" aria-pressed="true" title="跟随系统主题">系统</button>
+            <button type="button" class="theme-option" data-theme-mode="dark" aria-pressed="false" title="暗色主题">暗色</button>
+            <button type="button" class="theme-option" data-theme-mode="light" aria-pressed="false" title="亮色主题">亮色</button>
+          </div>
+        </section>
         <!-- 网页模型管理 -->
         <section class="panel-section" id="webModeSection">
           <header><h2>模型网站管理</h2></header>
@@ -72,9 +90,19 @@
               <button id="modelAddButton" class="model-add-button" type="button" aria-label="添加模型" title="添加新的AI模型">
                 <span>+ 添加模型</span>
               </button>
+              <button id="modelRestoreDefaultsButton" class="model-restore-button" type="button" aria-label="恢复已删除的默认网站" title="恢复已删除的默认网站" hidden>恢复默认网站</button>
             </div>
           </div>
         </section>
+      </div>
+      <div class="sidebar-footer">
+        <button id="settingsButton" class="settings-button" type="button" aria-label="打开设置" title="设置">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <circle cx="12" cy="12" r="3.2"/>
+                          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.12.55.58 1 1.15 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/>
+                        </svg>
+          <span>设置</span>
+        </button>
       </div>
     </aside>
     <div class="main-column">
@@ -82,6 +110,21 @@
         <div id="panelsContainer" class="panels-container" data-layout="dual"></div>
       </main>
       <footer class="composer">
+        <!-- Local status transcript: every message here is a Qask-owned string,
+             never page text. It is the user-visible counterpart of logStatus. -->
+        <div id="broadcastStatus" class="broadcast-status" role="status" aria-live="polite" aria-atomic="false" hidden>
+          <ul id="broadcastStatusList" class="broadcast-status-list" aria-label="发送与页面状态"></ul>
+          <button id="broadcastStatusClear" type="button" class="broadcast-status-clear" aria-label="清除状态消息" title="清除状态消息">×</button>
+        </div>
+        <section id="messageQueue" class="message-queue" aria-label="发送队列" hidden>
+          <header class="message-queue-header">
+            <span id="messageQueueTitle" class="message-queue-title">发送队列</span>
+            <span id="messageQueueHint" class="message-queue-hint" role="status" aria-live="polite"></span>
+            <button type="button" id="queueSkipWait" class="queue-action" hidden>跳过等待</button>
+            <button type="button" id="queueClear" class="queue-action queue-action--danger">清空</button>
+          </header>
+          <ol id="messageQueueList" class="message-queue-list"></ol>
+        </section>
         <form id="broadcastForm" class="composer-form">
           <div class="composer-input">
             <button id="addAttachment" type="button" class="input-action-btn add-btn" aria-label="添加附件" title="添加图片、音频或 PDF 附件">
@@ -89,6 +132,7 @@
             </button>
             <textarea id="broadcastInput" rows="1" spellcheck="true" autofocus aria-label="向当前活动网站发送消息" placeholder="向当前活动网站提问"></textarea>
             <div class="input-right-actions">
+              <button id="comparisonButton" type="button" class="input-action-btn comparison-btn" aria-label="打开回答对比" title="回答对比">对比</button>
               <button id="recordAudioButton" type="button" class="input-action-btn record-btn" aria-label="录制语音附件" title="录制语音附件">
                 <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true">
                   <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/>
@@ -101,17 +145,100 @@
               <button id="cancelRecordingButton" type="button" class="input-action-btn cancel-recording-btn" aria-label="取消录音" title="取消录音" hidden>
                 <span aria-hidden="true">×</span>
               </button>
-              <button id="sendButton" type="submit" class="input-action-btn send-btn" aria-label="发送消息" title="发送消息 (Enter)" disabled>
-                <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true">
-                  <path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/>
-                </svg>
-              </button>
+              <div id="sendMode" class="send-mode" data-mode="send">
+                <button id="sendButton" type="submit" class="input-action-btn send-btn" aria-label="发送消息" title="发送消息 (Enter)" aria-haspopup="true" aria-expanded="false" aria-controls="sendModeMenu" disabled>
+                  <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true">
+                    <path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/>
+                  </svg>
+                </button>
+                <div id="sendModeMenu" class="send-mode-menu" role="menu" aria-label="发送方式" hidden>
+                  <button type="button" class="send-mode-option" role="menuitemradio" data-send-mode="send" aria-checked="true">
+                    <span class="send-mode-name">立即发送</span>
+                    <small>发送后手动输入下一条</small>
+                  </button>
+                  <button type="button" class="send-mode-option" role="menuitemradio" data-send-mode="queue" aria-checked="false">
+                    <span class="send-mode-name">排队发送</span>
+                    <small>所有面板回答完成后自动发送下一条</small>
+                  </button>
+                  <button type="button" class="send-mode-option" role="menuitemradio" data-send-mode="fill" aria-checked="false">
+                    <span class="send-mode-name">仅填入</span>
+                    <small>只填入网页输入框，不点击发送</small>
+                  </button>
+                </div>
+              </div>
             </div>
             <input id="attachmentInput" type="file" hidden multiple accept="image/png,image/jpeg,image/gif,image/webp,audio/*,application/pdf,.pdf,.webm,.ogg,.mp3,.wav,.m4a,.aac,.flac">
           </div>
           <ul id="attachmentPreview" class="attachment-preview" aria-label="待发送附件" aria-live="polite"></ul>
         </form>
       </footer>
+    </div>
+  </div>
+  <div id="settingsDialog" class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle" hidden>
+    <div class="settings-backdrop" data-settings-dismiss></div>
+    <div class="settings-panel">
+      <header class="settings-header">
+        <h3 id="settingsDialogTitle">设置</h3>
+        <button id="settingsClose" class="settings-close" type="button" aria-label="关闭设置" title="关闭">×</button>
+      </header>
+      <form id="settingsForm" class="settings-form">
+        <section class="settings-section">
+          <h4>快捷键</h4>
+          <label class="settings-field">
+            <span>发送消息</span>
+            <select id="settingsSendShortcut">
+              <option value="enter">Enter</option>
+              <option value="mod-enter">⌘/Ctrl + Enter</option>
+              <option value="ctrl-enter">Ctrl + Enter（仅 Ctrl）</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>切换布局</span>
+            <select id="settingsLayoutShortcut">
+              <option value="alt-arrows">Alt + ← / →</option>
+              <option value="mod-alt-arrows">⌘/Ctrl + Alt + ← / →</option>
+              <option value="disabled">关闭</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>打开回答对比</span>
+            <select id="settingsComparisonShortcut">
+              <option value="mod-shift-c">⌘/Ctrl + Shift + C</option>
+              <option value="alt-c">Alt + C</option>
+              <option value="disabled">关闭</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>打开设置</span>
+            <span class="settings-fixed-shortcut">⌘/Ctrl + ,</span>
+          </label>
+          <p class="settings-hint">Shift + Enter 始终换行；快捷键在输入框中不会触发。</p>
+        </section>
+        <section class="settings-section">
+          <h4>发送与对比</h4>
+          <label class="settings-field">
+            <span>默认发送方式</span>
+            <select id="settingsSendMode">
+              <option value="send">立即发送</option>
+              <option value="queue">排队发送</option>
+              <option value="fill">仅填入</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>对比默认模型</span>
+            <select id="settingsComparisonModel"></select>
+          </label>
+          <label class="settings-check">
+            <input id="settingsShowStatus" type="checkbox">
+            <span>显示底部状态栏（默认隐藏）</span>
+          </label>
+        </section>
+        <footer class="settings-actions">
+          <button id="settingsReset" class="settings-action" type="button">恢复默认</button>
+          <button id="settingsCancel" class="settings-action" type="button">取消</button>
+          <button id="settingsSave" class="settings-action settings-save" type="submit">保存设置</button>
+        </footer>
+      </form>
     </div>
   </div>
   <div id="modelAddDialog" class="model-add-dialog" role="dialog" aria-modal="true" aria-labelledby="modelAddDialogTitle" hidden>
@@ -140,6 +267,30 @@
     </div>
   </div>
 
+  <div id="comparisonDialog" class="comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="comparisonDialogTitle" hidden>
+    <div class="comparison-backdrop" data-comparison-dismiss></div>
+    <div class="comparison-panel">
+      <header class="comparison-header">
+        <h3 id="comparisonDialogTitle">回答对比</h3>
+        <button type="button" id="comparisonClose" class="comparison-close" aria-label="关闭回答对比">×</button>
+      </header>
+      <div class="comparison-toolbar">
+        <button type="button" id="comparisonRefresh" class="comparison-action">刷新回答</button>
+        <label class="comparison-sync-label"><input id="comparisonSyncScroll" type="checkbox" checked> 同步滚动</label>
+        <label class="comparison-summarizer-label" for="comparisonSummarizer">总结模型</label>
+        <select id="comparisonSummarizer" class="comparison-round-select comparison-summarizer-select"></select>
+        <button type="button" id="comparisonSummarize" class="comparison-action comparison-action--primary">AI 总结差异</button>
+      </div>
+      <p id="comparisonStatus" class="comparison-live-status" role="status" aria-live="polite"></p>
+      <p id="comparisonPrompt" class="comparison-prompt-text" hidden></p>
+      <p id="comparisonEmpty" class="comparison-empty">当前没有可对比的回答。请先让面板加载完成并完成一轮提问。</p>
+      <div id="comparisonAnswers" class="comparison-answers" aria-label="各模型回答" hidden></div>
+      <section id="comparisonSummary" class="comparison-summary" hidden>
+        <h4>AI 差异总结</h4>
+        <p id="comparisonSummaryText"></p>
+      </section>
+    </div>
+  </div>
 
   <script type="module" src="./renderer.js"></script>
 </body>
