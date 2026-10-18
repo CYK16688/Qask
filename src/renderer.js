@@ -263,6 +263,14 @@ async function settleBroadcastTasks(recipients, dispatch, timeoutMs = 15_000, on
   }));
 }
 
+function getAttachmentUploadSettleMs(manifest = []) {
+  const bytes = (Array.isArray(manifest) ? manifest : [])
+    .reduce((total, item) => total + (Number(item?.size) || 0), 0);
+  // Large files need longer than a fixed two-second pause before the site's
+  // send control accepts the message. Cap at 20s so a stuck upload cannot hang.
+  return Math.min(20000, 2500 + Math.ceil(bytes / (1024 * 1024)) * 1000);
+}
+
 function buildAttachmentPayloads(entries) {
   // Metadata only: no bytes, path, or data URI ever leaves the renderer.
   return (Array.isArray(entries) ? entries : []).map((entry) => ({
@@ -2746,8 +2754,8 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
     } else {
       autoUploaded = true;
     }
-    // Give the site a moment to create its upload preview before sending text.
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    // Give the site time to finish its upload preview before sending text.
+    await new Promise((resolve) => setTimeout(resolve, getAttachmentUploadSettleMs(attachmentManifest)));
   }
   // Attachment bytes never enter the guest script. Text can still ride the
   // normal adapter; the result says whether the files were placed in the site's
@@ -4758,6 +4766,11 @@ broadcastForm.addEventListener("submit", async (event) => {
     logBroadcastSummary(results);
 
     if (attachmentPayload.length > 0) {
+      const uploadedAndSent = results.length > 0
+        && results.every((entry) => entry.attachmentUploaded === true && entry.autoSent === true);
+      if (uploadedAndSent) {
+        clearAttachments();
+      }
       const uploadFailures = results.filter((entry) => entry.attachmentUploadFailed === true);
       const uploadedCount = results.filter((entry) => entry.attachmentUploaded === true).length;
       if (uploadFailures.length) {
