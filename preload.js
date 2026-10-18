@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld("qask", {
     },
     persist: (payload) => ipcRenderer.invoke("attachments:persist", payload),
     reveal: (fileName) => ipcRenderer.invoke("attachments:reveal", fileName),
+    uploadToGuest: (payload) => ipcRenderer.invoke("attachments:upload-to-guest", payload),
   },
   diagnostics: {
     layoutLifecycleTraceEnabled: process.env.QASK_TRACE_LAYOUT_LIFECYCLE === "1",

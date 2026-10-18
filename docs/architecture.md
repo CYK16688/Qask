@@ -28,7 +28,7 @@ package.json
 
 Qask 不包含 Git、GitHub CLI/API、SSH、凭据助手或本地目录扫描功能。运行时不会读取 `.git`、Git 配置、remote、提交历史、GitHub CLI 配置、SSH 密钥、Cookie、环境文件或剪贴板历史，也不会把这些数据拼入网页注入脚本。
 
-Qask 可将用户明确提交的 composer 文本填入已验证的第三方网页。附件由用户文件选择、图片粘贴或显式录音产生，但始终保留在 Qask 本地；附件字节、路径或文件名不会进入 guest script。带附件时 Qask 仍可填入并尝试发送文字（否则带图提问会变成静默无操作），但不会自动上传附件；结果会明确提示用户到目标网站自己的可见上传界面选择文件。Qask 不支持目录上传或递归扫描。磁盘文件会在主进程解析并验证为常规文件后才加入附件队列；隐藏路径、`.git`、受保护的凭据目录、Qask 自身会话目录和明显的 GitHub/凭据敏感文件名都会被拒绝。完整数据保留说明见仓库根目录的 [PRIVACY.md](../PRIVACY.md)。
+Qask 可将用户明确提交的 composer 文本填入已验证的第三方网页。附件由用户文件选择、图片粘贴或显式录音产生。附件字节、路径或文件名不会进入 guest script。设置「发送时尝试自动上传附件」开启时，主进程通过 Electron debugger 把用户选择的本地文件设置到已验证 webview 的 `input[type=file]`；失败或关闭时保留本地附件并提示手动上传。带附件时文字仍通过正常适配器发送，避免带图提问变成静默无操作。Qask 不支持目录上传或递归扫描。磁盘文件会在主进程解析并验证为常规文件后才加入附件队列；隐藏路径、`.git`、受保护的凭据目录、Qask 自身会话目录和明显的 GitHub/凭据敏感文件名都会被拒绝。完整数据保留说明见仓库根目录的 [PRIVACY.md](../PRIVACY.md)。
 
 ## 网页模型与隔离
 
@@ -41,7 +41,7 @@ Qask 可将用户明确提交的 composer 文本填入已验证的第三方网�
 1. 查找站点输入框；
 2. 写入文本并派发输入事件；
 3. 在适配器允许时尝试点击网页发送；结果只能表示尝试，不表示第三方网站接受或模型读取；
-4. 附件存在时仍可运行文本注入并发送文字，但附件不会进入脚本；Qask 保留本地附件，并提示用户通过目标网站自己的可见上传界面确认和上传。
+4. 附件存在时仍运行文本注入；若启用自动上传，主进程先把文件设置到 webview 的文件输入控件，再把文字填入/发送。附件字节不会进入脚本。
 
 这些构建器依赖第三方 DOM，不能保证长期可用。内置模型采用专用文本适配器；自定义网页采用通用 fallback。文本脚本只会向模型注册时允许的 HTTPS origin 注入。附件绝不会传入 guest JavaScript：不传字节、路径、文件名、元数据、`data:` URI、Blob/File、DataTransfer 或剪贴板负载。`test/web-adapters.test.cjs` 会验证各适配器生成的脚本可被 JavaScript 解析，但不能替代真实网页验收。
 
@@ -73,7 +73,7 @@ Qask 可将用户明确提交的 composer 文本填入已验证的第三方网�
 
 - 附件队列保存在 renderer 内存的 `Map`，不会把队列、文件路径、录音元数据或麦克风状态写入 `localStorage`。用户选择的磁盘文件保持原样；录音与粘贴图片由主进程写入 `~/Pictures/Qask Attachments/`，并向宿主返回仅用于展示的 `displayPath`。
 - 限制为最多 5 个、合计 20 MB；图片 5 MB、音频/PDF 10 MB；录音最多 120 秒或 10 MB。
-- 附件不读取为 Data URI，也不会交给任何 webview 或 guest JavaScript；带附件时文字仍可发送，但附件始终保留本地，等待用户在目标网站自己的上传界面操作。保存目录、文件名与路径只回传宿主 shell，不进入 guest 脚本；`attachments:persist` 有按类型的大小上限（图片 5 MB、音频/PDF 10 MB），`attachments:reveal` 拒绝目录外路径。
+- 附件不读取为 Data URI，也不会交给任何 webview 或 guest JavaScript；开启自动上传时，主进程通过 `DOM.setFileInputFiles` 把本地文件设置到 webview 的文件输入控件，文件随后由网站自己的上传逻辑处理。关闭自动上传或没有可用文件输入时，附件保留本地，等待用户手动上传。保存目录、文件名与路径只回传宿主 shell，不进入 guest 脚本；`attachments:persist` 有按类型的大小上限（图片 5 MB、音频/PDF 10 MB），`attachments:reveal` 拒绝目录外路径。
 - `MediaRecorder` 只在用户点击录音后运行。每次录音拥有独立的 stream、chunks、计时器和 permission lease；停止进入 drain 阶段，最终 `dataavailable` 后才由该录音自己的 `stop` 回调完成附件或丢弃。取消、错误、超限与窗口卸载都会停止轨道并清除缓冲。录音作为 `audio/webm`/`audio/ogg` 附件处理，不等同于第三方网站的实时语音模式或语音转写。
 - `preload.js` 仅暴露窄的 `window.qask.microphone` IPC。主进程在 macOS 上先检查/请求 `systemPreferences` 麦克风授权，并签发 30 秒、只允许主 Qask shell 音频请求的短期 lease；录制期间 renderer 每 10 秒续期一次，停止/取消/出错/卸载都会释放。所有 provider partition 的权限处理器均为拒绝。
 
@@ -100,7 +100,7 @@ Qask 可将用户明确提交的 composer 文本填入已验证的第三方网�
 
 ## 安全状态
 
-当前仍是原型，不应把静态测试视为正式发布验收；但 webview 安全基线已收紧：shell 与 guest 使用 `webSecurity: true`、禁用不安全内容、guest 无 Node/preload、provider partition 默认拒绝权限。所有弹窗和下载默认拒绝。已隔离的网页可完成正常站内、认证和重定向导航；Qask 填入文本前会在宿主核验当前 HTTPS exact origin，并由网页脚本在每次异步等待后、每次 DOM 写入前复核来源；导航到未登记来源时不注入内容。注入 allowlist（`injectableOrigins`）比主进程导航 allowlist 更窄，认证域（如 `accounts.google.com`、`auth.openai.com`）只允许导航、不允许注入。带附件时仍会执行文本注入，但不会把附件字节、路径或文件名交给 guest script。回答提取脚本同样只在已验证的 `injectableOrigins` 上执行，且只读取可见文本；AI 总结发送前需要用户确认。自定义网站只有用户显式登记的 HTTPS origin，且默认只填入、不自动发送。当前网页模式不保存 API Key；历史 API 原型曾把 Key 写入 renderer `localStorage`。
+当前仍是原型，不应把静态测试视为正式发布验收；但 webview 安全基线已收紧：shell 与 guest 使用 `webSecurity: true`、禁用不安全内容、guest 无 Node/preload、provider partition 默认拒绝权限。所有弹窗和下载默认拒绝。已隔离的网页可完成正常站内、认证和重定向导航；Qask 填入文本前会在宿主核验当前 HTTPS exact origin，并由网页脚本在每次异步等待后、每次 DOM 写入前复核来源；导航到未登记来源时不注入内容。注入 allowlist（`injectableOrigins`）比主进程导航 allowlist 更窄，认证域（如 `accounts.google.com`、`auth.openai.com`）只允许导航、不允许注入。带附件时仍会执行文本注入；自动上传使用主进程调试协议操作文件输入，不把附件字节、路径或文件名交给 guest script。回答提取脚本同样只在已验证的 `injectableOrigins` 上执行，且只读取可见文本；AI 总结发送前需要用户确认。自定义网站只有用户显式登记的 HTTPS origin，且默认只填入、不自动发送。当前网页模式不保存 API Key；历史 API 原型曾把 Key 写入 renderer `localStorage`。
 
 源码发布也使用 `package.json` 的显式 `files` allowlist 与 `.npmignore` 的 deny-by-default 规则。测试、布局截图、`artifacts/`、依赖目录和开发工具不会进入 npm 包。任何公开 GitHub 仓库或打包二进制仍需在发布前分别审计，不能仅凭这个规则认定为安全发布。
 

@@ -1127,6 +1127,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   sendMode: "send",
   comparisonModelId: "auto",
   confirmSummary: true,
+  autoUploadAttachments: true,
   autoPanelZoom: true,
   alwaysOnTop: false,
   launchAtLogin: false,
@@ -1151,6 +1152,7 @@ function normalizeSettings(raw) {
       ? value.comparisonModelId.trim()
       : DEFAULT_SETTINGS.comparisonModelId,
     confirmSummary: value.confirmSummary !== false,
+    autoUploadAttachments: value.autoUploadAttachments !== false,
     autoPanelZoom: value.autoPanelZoom !== false,
     alwaysOnTop: value.alwaysOnTop === true,
     launchAtLogin: value.launchAtLogin === true,
@@ -1166,7 +1168,6 @@ function normalizeSettings(raw) {
 }
 
 let appSettings = normalizeSettings(loadFromStorage(STORAGE_KEYS.settings, null));
-let transientStatusVisibleUntil = 0;
 
 function persistSettings() {
   saveToStorage(STORAGE_KEYS.settings, appSettings);
@@ -1232,6 +1233,7 @@ const settingsLayoutShortcut = document.getElementById("settingsLayoutShortcut")
 const settingsComparisonShortcut = document.getElementById("settingsComparisonShortcut");
 const settingsSendMode = document.getElementById("settingsSendMode");
 const settingsComparisonModel = document.getElementById("settingsComparisonModel");
+const settingsAutoUpload = document.getElementById("settingsAutoUpload");
 const settingsConfirmSummary = document.getElementById("settingsConfirmSummary");
 const settingsShowStatus = document.getElementById("settingsShowStatus");
 const settingsTheme = document.getElementById("settingsTheme");
@@ -1397,6 +1399,7 @@ const dispatchCoordinator = createDispatchCoordinator();
 async function inspectSelectedAttachments(files) {
   const approved = [];
   const rejected = [];
+  const paths = new Map();
   const inspect = window.qask?.attachments?.inspect;
   for (const file of Array.from(files || [])) {
     try {
@@ -1407,6 +1410,9 @@ async function inspectSelectedAttachments(files) {
       const inspection = await inspect(file);
       if (inspection?.allowed === true) {
         approved.push(file);
+        if (typeof inspection.filePath === "string" && inspection.filePath) {
+          paths.set(file, inspection.filePath);
+        }
       } else {
         rejected.push({ file, reason: inspection?.reason || "local-data-boundary" });
       }
@@ -1414,7 +1420,7 @@ async function inspectSelectedAttachments(files) {
       rejected.push({ file, reason: "local-data-boundary" });
     }
   }
-  return { approved, rejected };
+  return { approved, rejected, paths };
 }
 
 function setRecordingControls(isRecording) {
@@ -1571,7 +1577,7 @@ async function finalizeRecordingSession(session) {
   }
 }
 
-async function addAttachment(file, source = "local") {
+async function addAttachment(file, source = "local", filePath = null) {
   const validation = validateAttachmentMeta(file, Array.from(attachments.values()));
   if (!validation.valid) {
     logStatus(validation.reason, "error");
@@ -1586,6 +1592,7 @@ async function addAttachment(file, source = "local") {
     kind: validation.kind,
     savedFileName: null,
     savedPathLabel: null,
+    filePath: typeof filePath === "string" ? filePath : null,
   };
   attachments.set(id, entry);
   return entry;
@@ -1690,7 +1697,6 @@ function clearStatusMessages() {
   if (broadcastStatus) {
     broadcastStatus.hidden = true;
   }
-  transientStatusVisibleUntil = 0;
 }
 
 function logStatus(message, level = "info") {
@@ -1856,16 +1862,7 @@ function populateSettingsComparisonModels() {
 function applyStatusBarVisibility() {
   if (!broadcastStatus) return;
   const hasMessages = Boolean(broadcastStatusList?.children.length);
-  const transient = Date.now() < transientStatusVisibleUntil;
-  broadcastStatus.hidden = !(appSettings.showStatusBar || transient) || !hasMessages;
-}
-
-function revealStatusBarTemporarily(ms = 12000) {
-  transientStatusVisibleUntil = Math.max(transientStatusVisibleUntil, Date.now() + ms);
-  applyStatusBarVisibility();
-  setTimeout(() => {
-    if (Date.now() >= transientStatusVisibleUntil) applyStatusBarVisibility();
-  }, ms + 50);
+  broadcastStatus.hidden = !appSettings.showStatusBar || !hasMessages;
 }
 
 function openSettingsDialog() {
@@ -1881,6 +1878,7 @@ function openSettingsDialog() {
   if (settingsAutoZoom) settingsAutoZoom.checked = appSettings.autoPanelZoom;
   if (settingsAlwaysOnTop) settingsAlwaysOnTop.checked = appSettings.alwaysOnTop;
   if (settingsLaunchAtLogin) settingsLaunchAtLogin.checked = appSettings.launchAtLogin;
+  if (settingsAutoUpload) settingsAutoUpload.checked = appSettings.autoUploadAttachments;
   if (settingsConfirmSummary) settingsConfirmSummary.checked = appSettings.confirmSummary;
   if (settingsShowStatus) settingsShowStatus.checked = appSettings.showStatusBar;
   if (settingsAboutStatus) settingsAboutStatus.textContent = "";
@@ -1924,6 +1922,7 @@ function resetSettingsForm() {
   if (settingsAutoZoom) settingsAutoZoom.checked = DEFAULT_SETTINGS.autoPanelZoom;
   if (settingsAlwaysOnTop) settingsAlwaysOnTop.checked = DEFAULT_SETTINGS.alwaysOnTop;
   if (settingsLaunchAtLogin) settingsLaunchAtLogin.checked = DEFAULT_SETTINGS.launchAtLogin;
+  if (settingsAutoUpload) settingsAutoUpload.checked = DEFAULT_SETTINGS.autoUploadAttachments;
   if (settingsConfirmSummary) settingsConfirmSummary.checked = DEFAULT_SETTINGS.confirmSummary;
   settingsShowStatus.checked = DEFAULT_SETTINGS.showStatusBar;
   if (settingsComparisonModel) settingsComparisonModel.value = "auto";
@@ -2715,10 +2714,47 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
   }
 
   const hasAttachments = attachmentManifest.length > 0;
-  // Attachment bytes never enter the guest script. The text itself is still
-  // dispatched, so a mixed text+image turn does not become a silent no-op; the
-  // result carries an explicit manual-upload reminder instead.
-  const attachmentHint = hasAttachments ? "；附件仍在本机，请在各网页手动上传" : "";
+  const attachmentPaths = hasAttachments
+    ? attachmentManifest.map((item) => attachments.get(item.id)?.filePath).filter(Boolean)
+    : [];
+  let autoUploaded = false;
+  if (hasAttachments
+    && appSettings.autoUploadAttachments
+    && attachmentPaths.length === attachmentManifest.length) {
+    let guestId = null;
+    try {
+      guestId = panelState.webview.getWebContentsId?.() ?? null;
+    } catch (error) {
+      guestId = null;
+    }
+    const upload = guestId
+      ? await window.qask?.attachments?.uploadToGuest?.({
+        webContentsId: guestId,
+        filePaths: attachmentPaths,
+      })
+      : null;
+    if (!upload?.ok) {
+      return {
+        panel: config.label,
+        status: BROADCAST_STATUS.error,
+        message: `${config.label} 附件上传失败；请在该网页中手动上传附件后再发送`,
+        hint: "自动上传是实验性功能；网站结构变化或未提供文件输入时会失败。",
+        attachmentUploadFailed: true,
+        attachments: buildManualAttachmentReport(attachmentManifest),
+      };
+    }
+    autoUploaded = true;
+    // Give the site a moment to create its upload preview before sending text.
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+  }
+  // Attachment bytes never enter the guest script. Text can still ride the
+  // normal adapter; the result says whether the files were placed in the site's
+  // file input or still need a manual upload.
+  const attachmentHint = hasAttachments
+    ? (autoUploaded
+      ? "；附件已填入网页上传控件，请确认预览"
+      : "；附件仍在本机，请在各网页手动上传")
+    : "";
   const usingFallback = (config.composeMessageScript === buildGenericScript);
   const script = buildOriginGuardedScript(
     (config.composeMessageScript || buildGenericScript)(text, config.allowAutoSend && !fillOnly ? true : false, []),
@@ -2839,6 +2875,18 @@ function formatBytes(size) {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
+function updateAttachmentLocalHint(message = null) {
+  if (!attachmentLocalHint) return;
+  if (attachments.size === 0) {
+    attachmentLocalHint.hidden = true;
+    return;
+  }
+  attachmentLocalHint.hidden = false;
+  attachmentLocalHint.textContent = message || (appSettings.autoUploadAttachments
+    ? "附件会尝试自动填入网页上传控件；若网站不支持，请在该网页中手动上传。"
+    : "附件只保存在本机：发送会发送文字，文件需在各网页中手动上传。");
+}
+
 function renderAttachmentPreview() {
   attachmentPreview.innerHTML = "";
   attachments.forEach((item, id) => {
@@ -2893,9 +2941,7 @@ function renderAttachmentPreview() {
   // Attachments deliberately never clear themselves (a page's DOM cannot prove
   // an upload happened), so give the user one obvious way out of the queue
   // instead of making them remove a broadcast's worth of files one by one.
-  if (attachmentLocalHint) {
-    attachmentLocalHint.hidden = attachments.size === 0;
-  }
+  updateAttachmentLocalHint();
   if (attachments.size > 1) {
     const clearItem = document.createElement("li");
     clearItem.className = "attachment-clear-all";
@@ -3036,11 +3082,11 @@ window.addEventListener("beforeunload", () => {
 async function addAttachmentFiles(files, source = "local") {
   const selected = Array.from(files || []);
   if (!selected.length) return 0;
-  const { approved, rejected } = await inspectSelectedAttachments(selected);
+  const { approved, rejected, paths } = await inspectSelectedAttachments(selected);
   if (rejected.length) {
     logStatus(`为保护本地 GitHub 与凭据数据，已拒绝 ${rejected.length} 个敏感或不可验证附件`, "error");
   }
-  const entries = await Promise.all(approved.map((file) => addAttachment(file, source)));
+  const entries = await Promise.all(approved.map((file) => addAttachment(file, source, paths.get(file))));
   const added = entries.filter(Boolean);
   if (added.length) {
     renderAttachmentPreview();
@@ -4579,6 +4625,7 @@ if (settingsForm) {
       sendMode: settingsSendMode?.value,
       comparisonModelId: settingsComparisonModel?.value,
       confirmSummary: Boolean(settingsConfirmSummary?.checked),
+      autoUploadAttachments: Boolean(settingsAutoUpload?.checked),
       autoPanelZoom: Boolean(settingsAutoZoom?.checked),
       alwaysOnTop: Boolean(settingsAlwaysOnTop?.checked),
       launchAtLogin: Boolean(settingsLaunchAtLogin?.checked),
@@ -4595,6 +4642,7 @@ if (settingsForm) {
     applyTheme({ persist: true });
     applyWindowPreferences();
     syncAutomaticPanelZoom();
+    renderAttachmentPreview();
     applyStatusBarVisibility();
     closeSettingsDialog();
     logStatus("设置已保存", "success");
@@ -4623,13 +4671,13 @@ broadcastForm.addEventListener("submit", async (event) => {
     return;
   }
   if (!text && attachments.size > 0) {
-    revealStatusBarTemporarily();
-    logStatus("附件只保存在本机，不会自动上传；请输入文字后发送，文件请在网页中手动上传。", "warning");
+    updateAttachmentLocalHint("请先输入文字再发送；附件会尝试自动填入网页上传控件。");
+    broadcastInput.focus();
+    logStatus("附件需要配合文字发送；请输入文字后再点发送。", "warning");
     return;
   }
   if (sendModeValue === "queue") {
     if (attachments.size > 0) {
-      revealStatusBarTemporarily();
       logStatus("排队发送暂不支持附件；请移除附件或改用立即发送", "error");
       return;
     }
@@ -4659,7 +4707,6 @@ broadcastForm.addEventListener("submit", async (event) => {
   comparisonLastPrompt = text;
   isBroadcasting = true;
   syncComposerState();
-  if (attachments.size > 0) revealStatusBarTemporarily();
   // 显示发送状态
   logStatus(`正在发送消息到 ${activePanelCount} 个模型...`, "info");
 
@@ -4692,8 +4739,16 @@ broadcastForm.addEventListener("submit", async (event) => {
     logBroadcastSummary(results);
 
     if (attachmentPayload.length > 0) {
-      revealStatusBarTemporarily();
-      logStatus("附件仍保留在本地，请在每个网页自己的上传界面中选择、确认并手动上传。", "warning");
+      const uploadFailures = results.filter((entry) => entry.attachmentUploadFailed === true);
+      if (uploadFailures.length) {
+        updateAttachmentLocalHint("有附件上传失败；请在这些网页中手动上传后再试。");
+      }
+      logStatus(
+        uploadFailures.length
+          ? "部分附件上传失败；请在各网页自己的上传界面中选择、确认并手动上传。"
+          : "附件已尝试填入网页上传控件；请确认各网页的附件预览后再发送。",
+        uploadFailures.length ? "warning" : "info",
+      );
     }
 
     if (shouldClearBroadcastDraft(draftSnapshot, {

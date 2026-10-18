@@ -73,6 +73,11 @@ accept that provider's terms and privacy policy.
 - Provider login cookies and site storage live in the per-site persistent
   Electron partitions under Qask's userData directory. Qask does not clear them
   on startup; websites can still expire or invalidate their own sessions.
+- When "attempt automatic attachment upload" is enabled, Qask passes the paths
+  of files you selected to each provider's own file input via Electron's
+  debugging protocol. The file contents are then uploaded by that website under
+  its normal upload flow. Qask does not read file bytes into its injected page
+  scripts. Disable the setting to keep attachments local and upload manually.
 - The attachment queue and microphone status are not intentionally persisted in
   Qask localStorage. Recordings and pasted images are stored as ordinary files
   in `~/Pictures/Qask Attachments/`; Qask does not index or upload them.

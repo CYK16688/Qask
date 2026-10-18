@@ -39,11 +39,15 @@ test('Window and macOS dock icons use the packaged logo files', () => {
   assert.match(main, /ipcMain\.handle\("app:open-user-data"/);
   assert.match(main, /ipcMain\.handle\("window:set-always-on-top"/);
   assert.match(main, /ipcMain\.handle\("app:set-launch-at-login"/);
+  assert.match(main, /ipcMain\.handle\("attachments:upload-to-guest"/);
+  assert.match(main, /guest\.hostWebContents !== mainWindow\.webContents/);
+  assert.match(main, /DOM\.setFileInputFiles/);
   assert.match(main, /EXTERNAL_LINK_ALLOWLIST/);
   const preload = read('preload.js');
   assert.match(preload, /app: \{\s*info:/);
   assert.match(preload, /openExternal: \(url\) => ipcRenderer\.invoke\("app:open-external", url\)/);
   assert.match(preload, /openUserData: \(\) => ipcRenderer\.invoke\("app:open-user-data"\)/);
+  assert.match(preload, /uploadToGuest: \(payload\) => ipcRenderer\.invoke\("attachments:upload-to-guest", payload\)/);
   assert.match(preload, /setLaunchAtLogin: \(enabled\) => ipcRenderer\.invoke\("app:set-launch-at-login", enabled\)/);
   assert.match(preload, /window: \{\s*setAlwaysOnTop:/);
 });

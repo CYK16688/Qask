@@ -22,8 +22,10 @@ test('files can be dropped directly onto the composer', () => {
 
   assert.match(html, /composer-drop-hint/);
   assert.match(html, /id="attachmentLocalHint"/);
-  assert.match(renderer, /revealStatusBarTemporarily/);
+  assert.doesNotMatch(renderer, /revealStatusBarTemporarily/);
   assert.match(renderer, /const attachmentHint = hasAttachments/);
+  assert.match(renderer, /uploadToGuest/);
+  assert.match(renderer, /appSettings\.autoUploadAttachments/);
   assert.match(renderer, /async function addAttachmentFiles\(files, source = "local"\)/);
   assert.match(renderer, /Array\.from\(event\.dataTransfer\?\.types \|\| \[\]\)\.includes\("Files"\)/);
   assert.match(renderer, /composer\?\.addEventListener\("dragenter"/);

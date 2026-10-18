@@ -31,7 +31,7 @@ Qask is **not** a multi-provider API client. It does not use model APIs or a Qas
 - **Flexible workspace** — switch between focused, side-by-side, three-column, and 2×2 layouts.
 - **Theme** — follow the macOS appearance or pin the Qask shell to dark/light; provider sites that support `prefers-color-scheme` follow the same preference.
 - **Send modes and queue** — hover the send button to choose immediate send, queue, or fill-only. A queued prompt first waits for any in-flight answers to finish, then sends and advances automatically once every panel has finished.
-- **Settings** — configure theme, panel auto-zoom, always-on-top, launch-at-login, shortcuts, default send mode, default comparison model, AI-summary confirmation, status transcript visibility, and local-data access; the About section links the version, AGPL license, and the open-source repository.
+- **Settings** — configure theme, panel auto-zoom, always-on-top, launch-at-login, shortcuts, default send mode, default comparison model, attachment auto-upload, AI-summary confirmation, status transcript visibility, and local-data access; the About section links the version, AGPL license, and the open-source repository.
 - **Local by design** — Qask has no Git, GitHub, repository scanning, cloud sync, or provider API integration.
 - **Explicit attachment handling** — images, audio, PDFs, and microphone recordings stay local; drag files onto the composer or pick them with `+`, review the tray above the text field, then choose them in each provider's visible upload UI. Recordings and pasted images are saved to `~/Pictures/Qask Attachments/`.
 
@@ -229,12 +229,12 @@ Qask 是一个本地运行的 macOS / Windows / Electron 桌面工具，专注**
 - 支持单、双、三、四面板布局，`Alt + ← / →` 可在 Qask 界面聚焦时快速切换（面板内聚焦时请用侧栏按钮）。
 - 外观主题支持“跟随系统 / 暗色 / 亮色”，并同步给支持深色模式的第三方网页。
 - 发送按钮支持“立即发送 / 排队发送 / 仅填入”三种方式；排队消息会先等当前回答结束，再在所有面板完成后自动发送下一条。
-- 设置中可配置主题、面板自动缩放、窗口置顶、登录时启动、快捷键、默认发送方式、对比默认模型、AI 总结确认、底部状态栏（默认隐藏）和本地数据目录；「关于」里显示版本、AGPL 许可与开源仓库地址。
+- 设置中可配置主题、面板自动缩放、窗口置顶、登录时启动、快捷键、默认发送方式、对比默认模型、附件自动上传、AI 总结确认、底部状态栏（默认隐藏）和本地数据目录；「关于」里显示版本、AGPL 许可与开源仓库地址。
 - 内置 ChatGPT、Gemini、豆包（Doubao）、Claude、Copilot、DeepSeek、Kimi 网页入口；可拖动排序，当前布局使用前 *N* 个网站。
 - 可添加**自定义 HTTPS 网页模型**；默认只填入文字，只有对精确 origin 明确授权后才会尝试自动发送。
 - 每个网站拥有独立持久化 Electron 会话分区，登录状态相互隔离，通常可在本机重启后保留。
 - 统一输入框可向活动面板并发尝试填入/发送文本；`Enter` 发送，`Shift + Enter` 换行。
-- 支持本地图片、音频或 PDF 队列和显式麦克风本地录音；附件不会由 Qask 自动传给第三方网页，带附件时仍可发送文字，但文件必须在各网站可见上传界面中自行确认和上传。
+- 支持本地图片、音频或 PDF 队列和显式麦克风本地录音；默认尝试把附件设置到各网站的文件上传控件，失败或关闭设置时仍可发送文字，并在各网站可见上传界面中手动上传。
 - 支持本地截图，保存至 `~/Pictures/Qask Screenshots/`。
 - 输入框右侧“对比”会读取当前各面板可见的最新回答，并排显示、同步滚动；可随时刷新，也可选择一个模型用 AI 总结差异。回答只保存在内存中，Qask 不写入本地文件。
 

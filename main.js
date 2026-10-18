@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, session, systemPreferences, shell, nativeTheme } = require("electron");
+const { app, BrowserWindow, ipcMain, globalShortcut, session, systemPreferences, shell, nativeTheme, webContents } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
@@ -587,7 +587,62 @@ ipcMain.handle("attachments:inspect", (event, filePath) => {
   if (!isTrustedShellSender(event)) {
     return { allowed: false, reason: "untrusted-sender" };
   }
-  return inspectShellAttachmentPath(filePath);
+  const inspection = inspectShellAttachmentPath(filePath);
+  if (!inspection.allowed) return inspection;
+  try {
+    return { ...inspection, filePath: fs.realpathSync(filePath) };
+  } catch (error) {
+    return { allowed: false, reason: "unreadable-path" };
+  }
+});
+
+ipcMain.handle("attachments:upload-to-guest", async (event, payload) => {
+  if (!isTrustedShellSender(event) || !mainWindow) {
+    return { ok: false, reason: "untrusted-sender" };
+  }
+  const guest = webContents.fromId(Number(payload?.webContentsId));
+  if (!guest || guest.isDestroyed()
+    || guest.getType() !== "webview"
+    || guest.hostWebContents !== mainWindow.webContents
+    || !isHttpsUrl(guest.getURL())) {
+    return { ok: false, reason: "untrusted-guest" };
+  }
+  const requested = Array.isArray(payload?.filePaths) ? payload.filePaths.slice(0, 5) : [];
+  const files = [];
+  for (const candidate of requested) {
+    const inspection = inspectShellAttachmentPath(candidate);
+    if (inspection.allowed) {
+      try { files.push(fs.realpathSync(candidate)); } catch (error) { /* skip unreadable */ }
+    }
+  }
+  if (!files.length) return { ok: false, reason: "no-valid-files" };
+
+  let attachedByUs = false;
+  try {
+    if (!guest.debugger.isAttached()) {
+      guest.debugger.attach("1.3");
+      attachedByUs = true;
+    }
+    await guest.debugger.sendCommand("DOM.enable").catch(() => {});
+    const { root } = await guest.debugger.sendCommand("DOM.getDocument", { depth: -1 });
+    const { nodeIds = [] } = await guest.debugger.sendCommand("DOM.querySelectorAll", {
+      nodeId: root.nodeId,
+      selector: 'input[type="file"]',
+    });
+    for (const nodeId of nodeIds) {
+      try {
+        await guest.debugger.sendCommand("DOM.setFileInputFiles", { files, nodeId });
+        return { ok: true, fileCount: files.length, inputCount: nodeIds.length };
+      } catch (error) {
+        // Try the next file input; some pages create multiple hidden inputs.
+      }
+    }
+    return { ok: false, reason: "no-file-input", inputCount: nodeIds.length };
+  } catch (error) {
+    return { ok: false, reason: "debugger-failed" };
+  } finally {
+    if (attachedByUs && guest.debugger.isAttached()) guest.debugger.detach();
+  }
 });
 ipcMain.handle("attachments:persist", persistShellAttachment);
 ipcMain.handle("attachments:reveal", revealShellAttachment);

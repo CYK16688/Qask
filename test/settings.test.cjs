@@ -35,6 +35,7 @@ test('the sidebar and collapsed rail expose a settings entry point', () => {
   assert.match(indexHtml, /id="settingsLaunchAtLogin"/);
   assert.match(indexHtml, /id="settingsSendMode"/);
   assert.match(indexHtml, /id="settingsComparisonModel"/);
+  assert.match(indexHtml, /id="settingsAutoUpload"[^>]*type="checkbox"/);
   assert.match(indexHtml, /id="settingsConfirmSummary"[^>]*type="checkbox"/);
   assert.match(indexHtml, /id="settingsShowStatus"[^>]*type="checkbox"/);
   assert.match(indexHtml, /id="settingsVersion"/);
@@ -49,6 +50,8 @@ test('settings persist with the status transcript hidden by default', () => {
   assert.match(renderer, /settings: "qask\.settings"/);
   assert.match(renderer, /showStatusBar: false/);
   assert.match(renderer, /confirmSummary: true/);
+  assert.match(renderer, /autoUploadAttachments: true/);
+  assert.match(renderer, /autoUploadAttachments: value\.autoUploadAttachments !== false/);
   assert.match(renderer, /autoPanelZoom: true/);
   assert.match(renderer, /alwaysOnTop: false/);
   assert.match(renderer, /launchAtLogin: false/);
@@ -59,7 +62,7 @@ test('settings persist with the status transcript hidden by default', () => {
   assert.match(renderer, /let sendModeValue = appSettings\.sendMode/);
   assert.match(renderer, /setSendMode\(option\.dataset\.sendMode, \{ persist: true \}\)/);
   assert.match(indexHtml, /id="broadcastStatus"[^>]*hidden/);
-  assert.match(renderer, /broadcastStatus\.hidden = !\(appSettings\.showStatusBar \|\| transient\)/);
+  assert.match(renderer, /broadcastStatus\.hidden = !appSettings\.showStatusBar/);
 });
 
 test('shortcut matchers follow the selected send, layout, and comparison bindings', () => {

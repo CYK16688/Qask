@@ -720,7 +720,7 @@ test('attachment-bearing status output contains no selected attachment name or p
   const submitSource = renderer.slice(submitStart, submitEnd);
 
   assert.doesNotMatch(submitSource, /entry\.file\.name|localAttachments\.map\(/);
-  assert.match(submitSource, /附件仍保留在本地，请在每个网页自己的上传界面中选择、确认并手动上传/);
+  assert.match(submitSource, /附件已尝试填入网页上传控件|部分附件上传失败/);
 });
 
 test('guest execution failures and attachment removal statuses do not log remote errors or local filenames', () => {
