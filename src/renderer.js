@@ -1126,6 +1126,7 @@ const persistedCustomModels = Array.isArray(storedCustomModels) ? storedCustomMo
 const DEFAULT_SETTINGS = Object.freeze({
   sendMode: "send",
   comparisonModelId: "auto",
+  confirmSummary: true,
   showStatusBar: false,
   shortcuts: Object.freeze({
     send: "enter",
@@ -1146,6 +1147,7 @@ function normalizeSettings(raw) {
     comparisonModelId: typeof value.comparisonModelId === "string" && value.comparisonModelId.trim()
       ? value.comparisonModelId.trim()
       : DEFAULT_SETTINGS.comparisonModelId,
+    confirmSummary: value.confirmSummary !== false,
     // The transcript starts hidden: it is a diagnostic surface, not the primary
     // conversation, and it used to cover the composer on startup.
     showStatusBar: value.showStatusBar === true,
@@ -1223,7 +1225,14 @@ const settingsLayoutShortcut = document.getElementById("settingsLayoutShortcut")
 const settingsComparisonShortcut = document.getElementById("settingsComparisonShortcut");
 const settingsSendMode = document.getElementById("settingsSendMode");
 const settingsComparisonModel = document.getElementById("settingsComparisonModel");
+const settingsConfirmSummary = document.getElementById("settingsConfirmSummary");
 const settingsShowStatus = document.getElementById("settingsShowStatus");
+const settingsTheme = document.getElementById("settingsTheme");
+const settingsVersion = document.getElementById("settingsVersion");
+const settingsAboutStatus = document.getElementById("settingsAboutStatus");
+const settingsOpenData = document.getElementById("settingsOpenData");
+const settingsOpenRepo = document.getElementById("settingsOpenRepo");
+const settingsOpenReleases = document.getElementById("settingsOpenReleases");
 const panelsContainer = document.getElementById("panelsContainer");
 const broadcastForm = document.getElementById("broadcastForm");
 const broadcastInput = document.getElementById("broadcastInput");
@@ -1845,7 +1854,18 @@ function openSettingsDialog() {
   settingsLayoutShortcut.value = appSettings.shortcuts.layout;
   settingsComparisonShortcut.value = appSettings.shortcuts.comparison;
   settingsSendMode.value = appSettings.sendMode;
+  if (settingsTheme) settingsTheme.value = themeMode;
+  if (settingsConfirmSummary) settingsConfirmSummary.checked = appSettings.confirmSummary;
   if (settingsShowStatus) settingsShowStatus.checked = appSettings.showStatusBar;
+  if (settingsAboutStatus) settingsAboutStatus.textContent = "";
+  if (settingsVersion) settingsVersion.textContent = "…";
+  Promise.resolve(window.qask?.app?.info?.())
+    .then((info) => {
+      if (settingsVersion && info?.version) settingsVersion.textContent = `v${info.version}`;
+    })
+    .catch(() => {
+      if (settingsVersion) settingsVersion.textContent = "v1.0.3";
+    });
   populateSettingsComparisonModels();
   settingsDialog.removeAttribute("hidden");
   settingsDialog.removeAttribute("aria-hidden");
@@ -1869,6 +1889,8 @@ function resetSettingsForm() {
   settingsLayoutShortcut.value = DEFAULT_SETTINGS.shortcuts.layout;
   settingsComparisonShortcut.value = DEFAULT_SETTINGS.shortcuts.comparison;
   settingsSendMode.value = DEFAULT_SETTINGS.sendMode;
+  if (settingsTheme) settingsTheme.value = "system";
+  if (settingsConfirmSummary) settingsConfirmSummary.checked = DEFAULT_SETTINGS.confirmSummary;
   settingsShowStatus.checked = DEFAULT_SETTINGS.showStatusBar;
   if (settingsComparisonModel) settingsComparisonModel.value = "auto";
 }
@@ -3365,10 +3387,12 @@ async function summarizeComparisonDifferences() {
     return;
   }
   const label = getPanelLabel(panelState);
-  const confirmed = window.confirm(
-    `将把 ${answers.length} 段回答发送给“${label}”生成差异总结。回答中可能包含敏感内容，确定继续？`,
-  );
-  if (!confirmed) return;
+  if (appSettings.confirmSummary) {
+    const confirmed = window.confirm(
+      `将把 ${answers.length} 段回答发送给“${label}”生成差异总结。回答中可能包含敏感内容，确定继续？`,
+    );
+    if (!confirmed) return;
+  }
 
   comparisonSummarizing = true;
   comparisonAnswersFrozen = true;
@@ -4454,6 +4478,30 @@ if (settingsDialog) {
 if (settingsReset) {
   settingsReset.addEventListener("click", resetSettingsForm);
 }
+
+async function openSettingsExternal(url) {
+  try {
+    const opened = await window.qask?.app?.openExternal?.(url);
+    if (settingsAboutStatus) {
+      settingsAboutStatus.textContent = opened ? "已在系统浏览器中打开" : "无法打开该链接";
+    }
+  } catch (error) {
+    if (settingsAboutStatus) settingsAboutStatus.textContent = "无法打开该链接";
+  }
+}
+
+settingsOpenRepo?.addEventListener("click", () => openSettingsExternal("https://github.com/CYK16688/Qask"));
+settingsOpenReleases?.addEventListener("click", () => openSettingsExternal("https://github.com/CYK16688/Qask/releases"));
+settingsOpenData?.addEventListener("click", async () => {
+  try {
+    const opened = await window.qask?.app?.openUserData?.();
+    if (settingsAboutStatus) {
+      settingsAboutStatus.textContent = opened ? "已打开本地数据目录" : "无法打开本地数据目录";
+    }
+  } catch (error) {
+    if (settingsAboutStatus) settingsAboutStatus.textContent = "无法打开本地数据目录";
+  }
+});
 if (settingsForm) {
   settingsForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -4461,6 +4509,7 @@ if (settingsForm) {
       ...appSettings,
       sendMode: settingsSendMode?.value,
       comparisonModelId: settingsComparisonModel?.value,
+      confirmSummary: Boolean(settingsConfirmSummary?.checked),
       showStatusBar: Boolean(settingsShowStatus?.checked),
       shortcuts: {
         send: settingsSendShortcut?.value,
@@ -4470,6 +4519,8 @@ if (settingsForm) {
     });
     persistSettings();
     setSendMode(appSettings.sendMode);
+    themeMode = THEME_MODES.has(settingsTheme?.value) ? settingsTheme.value : "system";
+    applyTheme({ persist: true });
     applyStatusBarVisibility();
     closeSettingsDialog();
     logStatus("设置已保存", "success");

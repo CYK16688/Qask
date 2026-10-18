@@ -233,7 +233,12 @@ test('application source has no GitHub integration, filesystem enumeration, or r
   const preload = readProjectFile('preload.js');
   const renderer = readProjectFile('src/renderer.js');
 
-  assert.doesNotMatch(main, /(?:require\(['"](?:node:)?(?:child_process|os)|github|\.git)/i);
+  // About links are the only allowed GitHub references; scrub them before the
+  // integration scan so the source cannot quietly grow a GitHub client.
+  const mainWithoutAboutLinks = main
+    .replaceAll("https://github.com/CYK16688/Qask/releases", "")
+    .replaceAll("https://github.com/CYK16688/Qask", "");
+  assert.doesNotMatch(mainWithoutAboutLinks, /(?:require\(['"](?:node:)?(?:child_process|os)|github|\.git)/i);
   assert.match(preload, /webUtils\.getPathForFile/);
   assert.match(preload, /ipcRenderer\.invoke\("attachments:inspect", filePath\)/);
   assert.doesNotMatch(preload, /(?:ipcRenderer\.on\s*$|github|\.git)/i);

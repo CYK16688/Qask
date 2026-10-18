@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld("qask", {
   theme: {
     set: (mode) => ipcRenderer.invoke("theme:set", mode),
   },
+  app: {
+    info: () => ipcRenderer.invoke("app:info"),
+    openExternal: (url) => ipcRenderer.invoke("app:open-external", url),
+    openUserData: () => ipcRenderer.invoke("app:open-user-data"),
+  },
   microphone: {
     requestAccess: () => ipcRenderer.invoke("microphone:request-access"),
     renewAccess: (leaseId) => ipcRenderer.invoke("microphone:renew-access", leaseId),

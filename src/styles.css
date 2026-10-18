@@ -3429,3 +3429,99 @@ html[data-theme="light"] .settings-backdrop {
 html[data-theme="light"] .settings-button:hover {
   border-color: rgba(109, 40, 217, 0.3);
 }
+
+/* In-app brand lockup and settings About. */
+.brand-lockup {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 2px 34px 2px 2px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.brand-lockup img {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.control-body {
+  padding-top: 6px;
+}
+
+.control-panel[data-collapsed="true"] .brand-lockup {
+  display: none;
+}
+
+.settings-about-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-about-head img {
+  border-radius: 11px;
+}
+
+.settings-about-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-about-title strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-about-title span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-about-desc {
+  margin: 10px 0 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.settings-link-button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke-soft);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.settings-link-button:hover {
+  border-color: rgba(130, 116, 255, 0.4);
+  color: var(--text);
+}
+
+html[data-theme="light"] .settings-link-button {
+  border-color: rgba(109, 40, 217, 0.25);
+  background: rgba(109, 40, 217, 0.06);
+  color: #5b21b6;
+}
+
+html[data-theme="light"] .brand-lockup {
+  color: var(--text);
+}

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
 const { randomUUID } = require("node:crypto");
 const Screenshots = require("electron-screenshots");
+const { version: QASK_VERSION } = require("./package.json");
 const { inspectAttachmentPath, sanitizeAttachmentFileName } = require("./local-data-boundary.cjs");
 
 // pathToFileURL keeps the trusted-shell URL valid on Windows (`C:\...`),
@@ -268,6 +269,7 @@ function createMainWindow() {
     minHeight: 720,
     title: "Qask",
     autoHideMenuBar: true,
+    ...(process.platform === "win32" ? { icon: path.join(__dirname, "assets", "qask.ico") } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -439,6 +441,13 @@ app.whenReady().then(() => {
   if (!hasSingleInstanceLock) {
     return;
   }
+  if (process.platform === "darwin" && app.dock) {
+    try {
+      app.dock.setIcon(path.join(__dirname, "assets", "qask-logo.png"));
+    } catch (error) {
+      console.warn("[icon] dock icon failed", error?.message || error);
+    }
+  }
   configureShellSession();
   createMainWindow();
 
@@ -485,6 +494,38 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => globalShortcut.unregisterAll());
+
+const EXTERNAL_LINK_ALLOWLIST = new Set([
+  "https://github.com/CYK16688/Qask",
+  "https://github.com/CYK16688/Qask/releases",
+]);
+
+ipcMain.handle("app:info", (event) => {
+  if (!isTrustedShellSender(event)) return { version: null, platform: null };
+  return { version: QASK_VERSION, platform: process.platform };
+});
+
+ipcMain.handle("app:open-external", async (event, url) => {
+  if (!isTrustedShellSender(event)) return false;
+  try {
+    const parsed = new URL(String(url));
+    if (parsed.protocol !== "https:" || !EXTERNAL_LINK_ALLOWLIST.has(parsed.toString())) return false;
+    await shell.openExternal(parsed.toString());
+    return true;
+  } catch (error) {
+    return false;
+  }
+});
+
+ipcMain.handle("app:open-user-data", async (event) => {
+  if (!isTrustedShellSender(event)) return false;
+  try {
+    const error = await shell.openPath(app.getPath("userData"));
+    return !error;
+  } catch (error) {
+    return false;
+  }
+});
 
 ipcMain.handle("theme:set", (event, mode) => {
   if (!isTrustedShellSender(event)) {

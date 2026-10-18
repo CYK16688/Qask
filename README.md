@@ -31,7 +31,7 @@ Qask is **not** a multi-provider API client. It does not use model APIs or a Qas
 - **Flexible workspace** — switch between focused, side-by-side, three-column, and 2×2 layouts.
 - **Theme** — follow the macOS appearance or pin the Qask shell to dark/light; provider sites that support `prefers-color-scheme` follow the same preference.
 - **Send modes and queue** — hover the send button to choose immediate send, queue, or fill-only. A queued prompt first waits for any in-flight answers to finish, then sends and advances automatically once every panel has finished.
-- **Settings** — configure shortcuts, the default send mode, the default comparison model, and whether the status transcript is shown (hidden by default).
+- **Settings** — configure theme, shortcuts, default send mode, default comparison model, AI-summary confirmation, status transcript visibility, and local-data access; the About section links the version, AGPL license, and the open-source repository.
 - **Local by design** — Qask has no Git, GitHub, repository scanning, cloud sync, or provider API integration.
 - **Explicit attachment handling** — images, audio, PDFs, and microphone recordings stay local; recordings and pasted images are saved to `~/Pictures/Qask Attachments/` so you can pick them in each provider's visible upload UI.
 
@@ -47,11 +47,12 @@ Qask is **not** a multi-provider API client. It does not use model APIs or a Qas
 | ![Three-panel comparison workspace.](docs/images/layout-triple.png) | ![Four-panel 2 by 2 comparison workspace.](docs/images/layout-quad.png) |
 | Keep three sources visible at once. | Use a 2×2 grid for four sources. |
 
-![Qask settings dialog: shortcuts, default send mode, default comparison model, and status-bar visibility.](docs/images/settings.png)
+| Settings | About |
+| --- | --- |
+| ![Qask settings dialog: theme, shortcuts, send mode, comparison model, and status-bar visibility.](docs/images/settings.png) | ![Qask About panel: logo, version, license, repository, and local-data access.](docs/images/settings-about.png) |
+| Theme, shortcuts, send mode, comparison defaults, and status. | Logo, version, AGPL license, repository link, and local-data access. |
 
-*Settings keep shortcuts, the default send mode, the default comparison model, and status-bar visibility in one place.*
-
-The screenshots were captured in version 1.0.3 from a fresh, unauthenticated Qask profile in dark theme, after each active third-party page reached `document.readyState === "complete"` and settled for several seconds. They contain no account identity, user prompt, response, credential, or conversation history. The visible pages are public landing, sign-in, or verification states—some services may show an anti-bot gate—so they demonstrate loaded webviews and layout, not successful third-party message delivery or model output. Settings screenshots show only local Qask UI with the pages blurred behind the dialog. Third-party UI, names, and marks remain owned by their respective providers; the screenshots are documentation-only and do not imply endorsement.
+The screenshots were captured in version 1.0.3 from a fresh, unauthenticated Qask profile in dark theme, after each active third-party page reached `document.readyState === "complete"` and settled for several seconds. They contain no account identity, user prompt, response, credential, or conversation history. The visible pages are public landing, sign-in, or verification states—some services may show an anti-bot gate—so they demonstrate loaded webviews and layout, not successful third-party message delivery or model output. Settings screenshots show only local Qask UI with the pages blurred behind the dialog. The About panel links the open-source repository and the version. Third-party UI, names, and marks remain owned by their respective providers; the screenshots are documentation-only and do not imply endorsement.
 
 ## Features
 
@@ -226,7 +227,7 @@ Qask 是一个本地运行的 macOS / Windows / Electron 桌面工具，专注**
 - 支持单、双、三、四面板布局，`Alt + ← / →` 可在 Qask 界面聚焦时快速切换（面板内聚焦时请用侧栏按钮）。
 - 外观主题支持“跟随系统 / 暗色 / 亮色”，并同步给支持深色模式的第三方网页。
 - 发送按钮支持“立即发送 / 排队发送 / 仅填入”三种方式；排队消息会先等当前回答结束，再在所有面板完成后自动发送下一条。
-- 设置中可配置快捷键、默认发送方式、对比默认模型，以及是否显示底部状态栏（默认隐藏）。
+- 设置中可配置主题、快捷键、默认发送方式、对比默认模型、AI 总结确认、底部状态栏（默认隐藏）和本地数据目录；「关于」里显示版本、AGPL 许可与开源仓库地址。
 - 内置 ChatGPT、Gemini、豆包（Doubao）、Claude、Copilot、DeepSeek、Kimi 网页入口；可拖动排序，当前布局使用前 *N* 个网站。
 - 可添加**自定义 HTTPS 网页模型**；默认只填入文字，只有对精确 origin 明确授权后才会尝试自动发送。
 - 每个网站拥有独立持久化 Electron 会话分区，登录状态相互隔离，通常可在本机重启后保留。

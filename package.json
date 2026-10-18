@@ -77,7 +77,8 @@
       "assets/qask.icns",
       "assets/qask-logo.svg",
       "package.json",
-      "assets/qask.ico"
+      "assets/qask.ico",
+      "assets/qask-logo.png"
     ],
     "extraResources": [
       {

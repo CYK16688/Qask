@@ -67,8 +67,12 @@ accept that provider's terms and privacy policy.
 - Qask localStorage retains only layout selection, website ordering, custom
   website labels/URLs, removed default website ids (used by “restore default
   websites”), the appearance preference (system/dark/light), and local settings
-  (shortcuts, default send mode, default comparison model, status-bar visibility).
-  Queued messages are held in memory only and are discarded when Qask exits.
+  (shortcuts, default send mode, default comparison model, AI-summary
+  confirmation, status-bar visibility). Queued messages are held in memory only
+  and are discarded when Qask exits.
+- Provider login cookies and site storage live in the per-site persistent
+  Electron partitions under Qask's userData directory. Qask does not clear them
+  on startup; websites can still expire or invalidate their own sessions.
 - The attachment queue and microphone status are not intentionally persisted in
   Qask localStorage. Recordings and pasted images are stored as ordinary files
   in `~/Pictures/Qask Attachments/`; Qask does not index or upload them.

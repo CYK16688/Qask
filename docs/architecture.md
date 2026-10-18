@@ -49,9 +49,9 @@ Qask 可将用户明确提交的 composer 文本填入已验证的第三方网�
 
 - `src/index.html` 提供侧栏、模型管理、动态工作区和底部输入区；输入区上方的 `#broadcastStatus` 是 `aria-live="polite"` 的本地状态条，只显示 Qask 生成的消息（`textContent`，不使用 innerHTML），最多保留 8 条。
 - `src/styles.css` 提供暗色与亮色两套变量，`html[data-theme="light"]` 覆盖表面/边框/文本；默认跟随系统。主题切换通过 `window.qask.theme.set()` 设置主进程 `nativeTheme.themeSource`，使 shell 与支持 `prefers-color-scheme` 的 provider 网页保持一致。
-- 主进程用 `pathToFileURL()` 生成受信任 shell URL，确保 Windows 的 `C:\...` 路径与渲染进程 frame URL 一致；macOS 与 Windows 共用同一套 IPC 与 webview 安全边界。
+- 主进程用 `pathToFileURL()` 生成受信任 shell URL，确保 Windows 的 `C:\...` 路径与渲染进程 frame URL 一致；macOS 与 Windows 共用同一套 IPC 与 webview 安全边界。`app:open-external` 只允许项目仓库/Releases 两个 HTTPS URL，`app:open-user-data` 只打开 Qask 的 userData 目录。
 - `src/renderer.js` 的布局规范支持 `single`、`dual`、`triple` 和 `quad`。侧栏“外观”提供跟随系统/暗色/亮色三种模式，选择保存在 `qask.theme`。
-- 设置保存在 `qask.settings`（快捷键、默认发送方式、对比默认模型、状态栏可见性）。状态栏默认隐藏，但 `logStatus` 始终写入控制台与内存中的转录。
+- 设置保存在 `qask.settings`（快捷键、默认发送方式、对比默认模型、总结确认、状态栏可见性）；主题继续保存在 `qask.theme`。状态栏默认隐藏，但 `logStatus` 始终写入控制台与内存中的转录。设置「关于」通过受限 IPC 打开项目仓库和本地数据目录，不引入 GitHub 客户端或任意 shell 打开能力。
 - 底部发送按钮悬停菜单提供 `send` / `queue` / `fill` 三种模式；`queue` 队列只保存在渲染进程内存中；待发送条目支持拖动/键盘排序、行内编辑和单条删除，当前发送条锁定。队列条目发送前先等待已有面板空闲（停止按钮消失 + 文本稳定），发送后按“最新回答文本稳定（停止按钮存在时多确认一轮）”判断完成，全部完成或超时后自动发送下一条。
 - 面板不再渲染宿主标题栏；三面板默认 90%、四面板默认 85%，并在 `webview` 的 `dom-ready` 后通过 Electron `setZoomFactor()` 自动应用。常规刷新/缩放/面板内模型切换控件均已移除，整个面板用于网页内容；当前面板成员只由侧栏拖动排序的前 N 名决定。仅在 `did-fail-load` 或 `render-process-gone` 后显示面板内“重新加载”覆盖层（`panel-state-overlay`），重新加载保留该站点的持久化分区。
 - `qask.modelOrder` 是模型网站的规范排序。侧栏仅通过拖动握柄提交排序；`reconcileActivePanelsToModelOrder()` 将排名前 N 个模型映射到 N 个活动面板。面板池最多保留四个已创建的 webview：缩小布局只隐藏未使用面板，恢复布局或将已加载网站重新排入前 N 名时会直接复用其页面、登录态、草稿和滚动位置，不会重新导航。只有当前池内从未加载过的网站才调用 `loadModel()` 创建 webview。侧栏前 N 个条目使用 `.is-active` 样式突出显示。

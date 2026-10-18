@@ -16,6 +16,10 @@
           <path d="M22.24 3.87L20.47 2.1 10.57 12l9.9 9.9 1.77-1.77L14.11 12z"/>
         </svg>
       </button>
+      <div class="brand-lockup" aria-label="Qask">
+        <img src="../assets/qask-logo.svg" alt="" width="30" height="30">
+        <span>Qask</span>
+      </div>
       <div class="control-body">
         <!-- 折叠侧边栏工具（仅在折叠时显示） -->
         <div class="collapsed-toolbar">
@@ -183,6 +187,17 @@
       </header>
       <form id="settingsForm" class="settings-form">
         <section class="settings-section">
+          <h4>外观</h4>
+          <label class="settings-field">
+            <span>主题</span>
+            <select id="settingsTheme">
+              <option value="system">跟随系统</option>
+              <option value="dark">暗色</option>
+              <option value="light">亮色</option>
+            </select>
+          </label>
+        </section>
+        <section class="settings-section">
           <h4>快捷键</h4>
           <label class="settings-field">
             <span>发送消息</span>
@@ -229,9 +244,36 @@
             <select id="settingsComparisonModel"></select>
           </label>
           <label class="settings-check">
+            <input id="settingsConfirmSummary" type="checkbox">
+            <span>发送 AI 总结前再次确认（可能包含敏感回答）</span>
+          </label>
+          <label class="settings-check">
             <input id="settingsShowStatus" type="checkbox">
             <span>显示底部状态栏（默认隐藏）</span>
           </label>
+        </section>
+        <section class="settings-section">
+          <h4>数据与登录</h4>
+          <p class="settings-hint">登录状态由各网站保存在本机持久化分区，Qask 启动时不会清除；网站主动过期或要求重新验证时仍需重新登录。</p>
+          <div class="settings-inline-actions">
+            <button id="settingsOpenData" class="settings-action" type="button">打开本地数据目录</button>
+          </div>
+        </section>
+        <section class="settings-section settings-about">
+          <h4>关于</h4>
+          <div class="settings-about-head">
+            <img src="../assets/qask-logo.svg" alt="Qask logo" width="42" height="42">
+            <div class="settings-about-title">
+              <strong>Qask</strong>
+              <span id="settingsVersion">1.0.3</span>
+            </div>
+          </div>
+          <p class="settings-about-desc">本地优先的多 AI 网页对比工具。AGPL-3.0-or-later。</p>
+          <div class="settings-inline-actions">
+            <button id="settingsOpenRepo" class="settings-link-button" type="button">github.com/CYK16688/Qask</button>
+            <button id="settingsOpenReleases" class="settings-link-button" type="button">Releases</button>
+          </div>
+          <p id="settingsAboutStatus" class="settings-hint" role="status" aria-live="polite"></p>
         </section>
         <footer class="settings-actions">
           <button id="settingsReset" class="settings-action" type="button">恢复默认</button>
