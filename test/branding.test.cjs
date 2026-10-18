@@ -30,6 +30,9 @@ test('the logo appears in the app shell and Settings About', () => {
 test('Window and macOS dock icons use the packaged logo files', () => {
   const main = read('main.js');
   assert.match(main, /process\.platform === "win32" \? \{ icon: path\.join\(__dirname, "assets", "qask\.ico"\) \}/);
+  assert.match(main, /app\.setName\("Qask"\)/);
+  assert.match(main, /app\.setPath\("userData", initialUserDataPath\)/);
+  assert.match(main, /app\.setAppUserModelId\("com\.icreator\.qask"\)/);
   assert.match(main, /app\.dock\.setIcon\(path\.join\(__dirname, "assets", "qask-logo\.png"\)\)/);
   assert.match(main, /ipcMain\.handle\("app:info"/);
   assert.match(main, /ipcMain\.handle\("app:open-external"/);

@@ -5,6 +5,23 @@ const { pathToFileURL } = require("node:url");
 const { randomUUID } = require("node:crypto");
 const Screenshots = require("electron-screenshots");
 const { version: QASK_VERSION } = require("./package.json");
+
+// The npm package id stays lowercase (`qask`), but every user-facing surface
+// should read `Qask`. Pin the existing userData path first so changing the
+// application name does not orphan provider logins or Qask settings.
+let initialUserDataPath = null;
+try {
+  initialUserDataPath = app.getPath("userData");
+} catch (error) {
+  console.warn("[app] could not read userData path", error?.message || error);
+}
+app.setName("Qask");
+if (initialUserDataPath) {
+  app.setPath("userData", initialUserDataPath);
+}
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.icreator.qask");
+}
 const { inspectAttachmentPath, sanitizeAttachmentFileName } = require("./local-data-boundary.cjs");
 
 // pathToFileURL keeps the trusted-shell URL valid on Windows (`C:\...`),
