@@ -2784,6 +2784,7 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
         message: `${config.label} ${autoSentText}${sendControlHint}${usingFallback ? " (通用策略)" : ""}${attachmentHint}`,
         autoSent: result.autoSent === true,
         attemptedAutoSend: result.autoSent === true,
+        attachmentUploaded: autoUploaded,
       };
     }
     return {
@@ -4740,13 +4741,16 @@ broadcastForm.addEventListener("submit", async (event) => {
 
     if (attachmentPayload.length > 0) {
       const uploadFailures = results.filter((entry) => entry.attachmentUploadFailed === true);
+      const uploadedCount = results.filter((entry) => entry.attachmentUploaded === true).length;
       if (uploadFailures.length) {
         updateAttachmentLocalHint("有附件上传失败；请在这些网页中手动上传后再试。");
       }
       logStatus(
         uploadFailures.length
           ? "部分附件上传失败；请在各网页自己的上传界面中选择、确认并手动上传。"
-          : "附件已尝试填入网页上传控件；请确认各网页的附件预览后再发送。",
+          : uploadedCount > 0
+            ? "附件已填入网页上传控件；请确认各网页的附件预览后再发送。"
+            : "附件未自动上传；请在各网页自己的上传界面中选择、确认并手动上传。",
         uploadFailures.length ? "warning" : "info",
       );
     }
