@@ -133,6 +133,13 @@ npm start
 
 On first launch, sign in inside each website panel. Then select a layout, arrange the websites in the sidebar, and send a prompt from the bottom composer.
 
+`npm start` launches Electron's development binary. The logical application name is Qask, but macOS may show the host process as **Electron** in Activity Monitor/Dock. Running a packaged bundle (`Qask.app` / `Qask.exe`) shows Qask as the system application name. A local unsigned macOS bundle can be produced with:
+
+```bash
+CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dir --arm64 --publish never
+open "dist/mac-arm64/Qask.app"
+```
+
 If Electron reports `spawn ENOEXEC` or attempts to use `electron.exe`, the dependencies were installed on a different platform. Reinstall them on the target machine:
 
 ```bash
@@ -152,7 +159,7 @@ This repository is the supported source distribution. npm publishing is intentio
 4. **Send text.** Enter a question in the shared composer. Qask attempts to fill and, where permitted, trigger each active website's own send control.
 5. **Compare on the pages or in “对比”.** Qask does not claim that a provider accepted a prompt or generated a response—use the actual panel content as the source of truth. The comparison view reads the visible answers, keeps the panes in sync while scrolling, and can ask one selected model to summarize the differences.
 
-For attachments, Qask deliberately stops before provider-page automation: upload, review, and send through the visible interface of every target website.
+For attachments, Qask tries to match the file type to each provider's own `<input type=file>` and sets the local file through Electron's debugging protocol before sending text; the site still controls upload preview and acceptance. If no compatible input exists, Qask reports the failure and keeps the manual-upload fallback.
 
 ## Development
 
@@ -174,7 +181,7 @@ The project uses Electron 44.3.0 and Node's built-in test runner. See [docs/arch
 - Qask does not support provider APIs or streaming. The comparison view extracts visible answer text with best-effort DOM selectors; if a provider redesigns its page the text may be incomplete or unavailable, and the original panel remains the source of truth. Extracted answers are not persisted locally.
 - Websites may change without notice and break their text adapters.
 - Using automated interaction with a provider website may be restricted by that provider's terms, account policies, or anti-bot controls; review the provider's current terms before use.
-- Qask does not upload attachments to provider websites, verify uploads, or prove that a model read an attachment.
+- Automatic attachment upload is experimental: it can fail when a provider changes its composer, hides file inputs in a shadow root, rejects a file type, or requires extra confirmation. Qask cannot prove that a model read an uploaded attachment.
 - macOS microphone and screen-capture permissions may be required for recording and screenshots.
 - A failed or crashed panel can be reloaded from its overlay; reloading rebuilds that page and keeps its login partition.
 - The published macOS arm64 preview is signed and notarized. Production distribution still requires permission-copy review and clean-account validation.
