@@ -22,7 +22,7 @@ A local-first desktop workspace that turns the AI sites you already use into one
 
 <p align="center"><sub>ChatGPT, Gemini, Doubao, Claude and more — each in its own official web UI, arranged in one workspace.</sub></p>
 
-> **Release status:** Qask is open source under **AGPL-3.0-or-later**. The macOS arm64 1.0.2 preview is signed and notarized; the app inside the DMG carries the notarization ticket, while **The DMG itself is not code-signed**. Version 1.0.3 adds a **Windows x64 preview** (portable + installer) under [v1.0.3](https://github.com/CYK16688/Qask/releases/tag/v1.0.3); the Windows builds are **unsigned**, cross-built from macOS, and **not yet been validated on Windows hardware**. Treat both as evaluation previews, not production support.
+> **Release status:** Qask is open source under **AGPL-3.0-or-later**. The macOS arm64 1.0.2 preview is signed and notarized; the app inside the DMG carries the notarization ticket, while **The DMG itself is not code-signed**. Version 1.0.3 adds a **Windows x64 preview** (portable + installer) under [v1.0.3](https://github.com/CYK16688/Qask/releases/tag/v1.0.3); the Windows builds are **unsigned**, cross-built from macOS, and **not yet been validated on Windows hardware**. A separate **unsigned** arm64 macOS 1.0.3 DMG is attached to the same pre-release for local evaluation; use the signed/notarized 1.0.2 DMG for normal Mac use. Treat both as evaluation previews, not production support.
 
 ## Why Qask
 
@@ -123,6 +123,15 @@ The signed, notarized Apple Silicon **1.0.2** preview is attached to the [latest
 shasum -a 256 -c Qask-1.0.2-arm64.dmg.sha256
 ```
 
+### Unsigned macOS 1.0.3 preview
+
+For testing the latest code on Apple Silicon before the next signed build:
+
+- [Qask-1.0.3-arm64-unsigned.dmg](https://github.com/CYK16688/Qask/releases/download/v1.0.3/Qask-1.0.3-arm64-unsigned.dmg)
+- [SHA-256](https://github.com/CYK16688/Qask/releases/download/v1.0.3/Qask-1.0.3-arm64-unsigned.dmg.sha256)
+
+This DMG and the app inside it are **unsigned and not notarized**. macOS Gatekeeper may block the downloaded app; for local evaluation, right-click the app and choose **Open**, or use System Settings → Privacy & Security → **Open Anyway**. Do not distribute this build as a trusted production release. The signed/notarized 1.0.2 DMG remains the stable macOS preview.
+
 ### Download the Windows preview
 
 Download the **v1.0.3** preview:
@@ -170,7 +179,7 @@ Do not modify `node_modules/electron/path.txt` or copy Electron binaries between
 
 ## Release status
 
-- **macOS:** 1.0.2 arm64 preview; signed, notarized, and suitable for evaluation. The DMG itself is not code-signed.
+- **macOS:** 1.0.2 arm64 preview; signed, notarized, and suitable for evaluation. The DMG itself is not code-signed. A 1.0.3 arm64 **unsigned** DMG is attached to v1.0.3 for local evaluation only.
 - **Windows:** 1.0.3 x64 preview; unsigned, cross-built from macOS, and still awaiting Windows hardware validation.
 - **Source:** every tagged GitHub release includes the corresponding source. The packaged macOS app ships the AGPL license, `NOTICE`, and `PRIVACY.md` inside `Qask.app/Contents/Resources/`.
 - **Latest links:** [Releases](https://github.com/CYK16688/Qask/releases) · [v1.0.3](https://github.com/CYK16688/Qask/releases/tag/v1.0.3)
@@ -259,7 +268,7 @@ Qask 是一个本地优先的 macOS / Windows 桌面工作区：把你已经在�
 
 ### 安装
 
-macOS arm64 1.0.2 预览版已签名并公证；DMG 本身不签名。Windows x64 1.0.3 预览版未签名、由 macOS 交叉构建、尚未在 Windows 真机验收。下载与校验信息见上方 [Install](#install) 和 [Releases](https://github.com/CYK16688/Qask/releases)。
+macOS arm64 1.0.2 预览版已签名并公证；DMG 本身不签名。v1.0.3 另提供未签名、未公证的 arm64 macOS DMG，仅用于本地体验，正常使用建议 1.0.2 签名版。Windows x64 1.0.3 预览版未签名、由 macOS 交叉构建、尚未在 Windows 真机验收。下载与校验信息见上方 [Install](#install) 和 [Releases](https://github.com/CYK16688/Qask/releases)。
 
 从源码运行：
 
