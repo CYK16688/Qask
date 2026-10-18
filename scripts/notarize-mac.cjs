@@ -42,6 +42,11 @@ if (!fs.existsSync(artifactPath)) {
   process.exit(1);
 }
 
+console.log(`Signing ${artifactName} with the Developer ID identity.`);
+const signingIdentity = process.env.APPLE_SIGN_IDENTITY || 'Developer ID Application';
+run('codesign', ['--force', '--timestamp', '--sign', signingIdentity, artifactPath]);
+run('codesign', ['--verify', '--verbose=2', artifactPath]);
+
 console.log(`Submitting ${artifactName} with Keychain profile "${profile}".`);
 
 try {
