@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld("qask", {
   window: {
     setAlwaysOnTop: (enabled) => ipcRenderer.invoke("window:set-always-on-top", enabled),
   },
+  guest: {
+    clickKimiSend: (guestId) => ipcRenderer.invoke("guest:click-kimi-send", guestId),
+  },
   microphone: {
     requestAccess: () => ipcRenderer.invoke("microphone:request-access"),
     renewAccess: (leaseId) => ipcRenderer.invoke("microphone:renew-access", leaseId),

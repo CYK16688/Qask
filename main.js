@@ -596,6 +596,44 @@ ipcMain.handle("attachments:inspect", (event, filePath) => {
   }
 });
 
+ipcMain.handle("guest:click-kimi-send", async (event, guestId) => {
+  if (!isTrustedShellSender(event) || !mainWindow) return { ok: false, reason: "untrusted-sender" };
+  const guest = webContents.fromId(Number(guestId));
+  if (!guest || guest.isDestroyed()
+    || guest.getType() !== "webview"
+    || guest.hostWebContents !== mainWindow.webContents
+    || !isHttpsUrl(guest.getURL())) {
+    return { ok: false, reason: "untrusted-guest" };
+  }
+  let attachedByUs = false;
+  try {
+    if (!guest.debugger.isAttached()) {
+      guest.debugger.attach("1.3");
+      attachedByUs = true;
+    }
+    const { result } = await guest.debugger.sendCommand("Runtime.evaluate", {
+      expression: `(() => {
+        const el = document.querySelector('.send-button-container');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return null;
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      })()`,
+      returnByValue: true,
+    });
+    const point = result?.value;
+    if (!point) return { ok: false, reason: "no-send-control" };
+    await guest.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+    await guest.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
+    await guest.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: "debugger-failed" };
+  } finally {
+    if (attachedByUs && guest.debugger.isAttached()) guest.debugger.detach();
+  }
+});
+
 ipcMain.handle("attachments:upload-to-guest", async (event, payload) => {
   if (!isTrustedShellSender(event) || !mainWindow) {
     return { ok: false, reason: "untrusted-sender" };

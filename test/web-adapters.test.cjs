@@ -444,12 +444,17 @@ test('built-in adapters retain a fill-only result when their discovered send con
 
   for (const adapterName of adapterNames.filter((name) => name !== 'buildGenericScript')) {
     const script = adapters[adapterName]('test message', true, []);
+    if (adapterName === 'buildKimiScript') {
+      assert.match(script, /\.send-button-container/);
+      assert.match(script, /sendButton\.disabled === true/);
+      assert.match(script, /sendControlDisabled: true/);
+      assert.match(script, /hostClickRequired: true/);
+      assert.doesNotMatch(script, /sendButton\.click\(\)/);
+      continue;
+    }
     assert.match(script, /let attemptedAutoSend = false/);
     assert.match(script, /autoSent: attemptedAutoSend/);
     assert.match(script, /!.*\.disabled/);
-  if (adapterName === 'buildKimiScript') {
-    assert.match(script, /\.send-button-container/);
-  }
   }
 });
 

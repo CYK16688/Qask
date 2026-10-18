@@ -895,24 +895,14 @@ const buildKimiScript = (text, autoSend, _attachments = []) => {
     ? `
     await new Promise((resolve) => setTimeout(resolve, 120));
     ${ORIGIN_GUARD_FAILURE}
-    let attemptedAutoSend = false;
     const sendButton = document.querySelector('button[data-testid="chat-send"], button[aria-label*="发送"], button[data-icon="send"], button[type="submit"], .send-button-container');
-    if (sendButton
-      && !sendButton.disabled
-      && sendButton.getAttribute?.('aria-disabled') !== 'true'
-      && typeof sendButton.click === 'function') {
-      sendButton.click();
-      attemptedAutoSend = true;
-    } else if (!sendButton && target) {
-      const keyEventInit = ${KEY_EVENT_INIT};
-      target.dispatchEvent(new KeyboardEvent('keydown', keyEventInit));
-      target.dispatchEvent(new KeyboardEvent('keypress', keyEventInit));
-      target.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
-      attemptedAutoSend = true;
-    }
-    if (!attemptedAutoSend) {
+    if (!sendButton || sendButton.disabled === true) {
       return { success: true, autoSent: false, sendControlDisabled: true, timestamp: Date.now() };
     }
+    // Kimi's send control is a Vue-bound div. A synthetic DOM click can be
+    // swallowed while an attachment is being processed, so the host performs a
+    // trusted CDP mouse click at the control's center instead.
+    return { success: true, autoSent: false, hostClickRequired: true, timestamp: Date.now() };
     `
     : "let attemptedAutoSend = false;";
 
@@ -2786,6 +2776,19 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
         status: BROADCAST_STATUS.pending,
         message: `${config.label} 仍在处理上一条消息；本面板未重发，以免出现重复提问`,
       };
+    }
+    if (result && result.success && result.hostClickRequired && panelState.modelId === "kimi") {
+      let guestId = null;
+      try { guestId = panelState.webview.getWebContentsId?.() ?? null; } catch (error) { guestId = null; }
+      const hostClick = guestId
+        ? await window.qask?.guest?.clickKimiSend?.(guestId)
+        : null;
+      if (hostClick?.ok) {
+        result.autoSent = true;
+        result.hostClicked = true;
+      } else {
+        result.sendControlDisabled = true;
+      }
     }
     if (result && result.success) {
       const autoSentText = result.autoSent ? "已尝试触发网页发送" : "已填充输入框";
