@@ -1166,6 +1166,7 @@ function normalizeSettings(raw) {
 }
 
 let appSettings = normalizeSettings(loadFromStorage(STORAGE_KEYS.settings, null));
+let transientStatusVisibleUntil = 0;
 
 function persistSettings() {
   saveToStorage(STORAGE_KEYS.settings, appSettings);
@@ -1249,6 +1250,7 @@ const composerDropHint = document.getElementById("composerDropHint");
 const broadcastInput = document.getElementById("broadcastInput");
 const attachmentInput = document.getElementById("attachmentInput");
 const attachmentPreview = document.getElementById("attachmentPreview");
+const attachmentLocalHint = document.getElementById("attachmentLocalHint");
 const sendButton = document.getElementById("sendButton");
 const sendModeEl = document.getElementById("sendMode");
 const sendModeMenu = document.getElementById("sendModeMenu");
@@ -1688,6 +1690,7 @@ function clearStatusMessages() {
   if (broadcastStatus) {
     broadcastStatus.hidden = true;
   }
+  transientStatusVisibleUntil = 0;
 }
 
 function logStatus(message, level = "info") {
@@ -1853,7 +1856,16 @@ function populateSettingsComparisonModels() {
 function applyStatusBarVisibility() {
   if (!broadcastStatus) return;
   const hasMessages = Boolean(broadcastStatusList?.children.length);
-  broadcastStatus.hidden = !appSettings.showStatusBar || !hasMessages;
+  const transient = Date.now() < transientStatusVisibleUntil;
+  broadcastStatus.hidden = !(appSettings.showStatusBar || transient) || !hasMessages;
+}
+
+function revealStatusBarTemporarily(ms = 12000) {
+  transientStatusVisibleUntil = Math.max(transientStatusVisibleUntil, Date.now() + ms);
+  applyStatusBarVisibility();
+  setTimeout(() => {
+    if (Date.now() >= transientStatusVisibleUntil) applyStatusBarVisibility();
+  }, ms + 50);
 }
 
 function openSettingsDialog() {
@@ -2703,26 +2715,10 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
   }
 
   const hasAttachments = attachmentManifest.length > 0;
-  // Documented boundary (docs/architecture.md): while any attachment is queued,
-  // Qask runs no guest script at all, so a page can never be filled or sent in a
-  // way that implies the file was delivered. The user uploads in each site's own
-  // visible control. Changing this is a product decision, not a bug fix.
-  if (hasAttachments) {
-    return {
-      panel: config.label,
-      status: BROADCAST_STATUS.partial,
-      message: `${config.label} 的附件仍保留在本地；请在该网页中手动选择并上传后再发送`,
-      autoSent: false,
-      attemptedAutoSend: false,
-      attachments: {
-        requested: attachmentManifest.length,
-        assigned: 0,
-        confirmed: 0,
-        unverified: [],
-        manualRequired: attachmentManifest.map((item) => ({ id: item.id, name: item.name, reason: "manual-required" })),
-      },
-    };
-  }
+  // Attachment bytes never enter the guest script. The text itself is still
+  // dispatched, so a mixed text+image turn does not become a silent no-op; the
+  // result carries an explicit manual-upload reminder instead.
+  const attachmentHint = hasAttachments ? "；附件仍在本机，请在各网页手动上传" : "";
   const usingFallback = (config.composeMessageScript === buildGenericScript);
   const script = buildOriginGuardedScript(
     (config.composeMessageScript || buildGenericScript)(text, config.allowAutoSend && !fillOnly ? true : false, []),
@@ -2749,7 +2745,7 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
       return {
         panel: config.label,
         status: BROADCAST_STATUS.success,
-        message: `${config.label} ${autoSentText}${sendControlHint}${usingFallback ? " (通用策略)" : ""}`,
+        message: `${config.label} ${autoSentText}${sendControlHint}${usingFallback ? " (通用策略)" : ""}${attachmentHint}`,
         autoSent: result.autoSent === true,
         attemptedAutoSend: result.autoSent === true,
       };
@@ -2757,7 +2753,7 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
     return {
       panel: config.label,
       status: BROADCAST_STATUS.error,
-      message: `网页操作失败${usingFallback ? " (通用策略)" : ""}`,
+      message: `网页操作失败${usingFallback ? " (通用策略)" : ""}${attachmentHint}`,
       hint: buildDispatchFailureHint(usingFallback),
       attachments: buildManualAttachmentReport(attachmentManifest),
     };
@@ -2765,7 +2761,7 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
     return {
       panel: config.label,
       status: BROADCAST_STATUS.error,
-      message: `网页操作失败${usingFallback ? " (通用策略)" : ""}`,
+      message: `网页操作失败${usingFallback ? " (通用策略)" : ""}${attachmentHint}`,
       hint: buildDispatchFailureHint(usingFallback),
       attachments: buildManualAttachmentReport(attachmentManifest),
     };
@@ -2897,6 +2893,9 @@ function renderAttachmentPreview() {
   // Attachments deliberately never clear themselves (a page's DOM cannot prove
   // an upload happened), so give the user one obvious way out of the queue
   // instead of making them remove a broadcast's worth of files one by one.
+  if (attachmentLocalHint) {
+    attachmentLocalHint.hidden = attachments.size === 0;
+  }
   if (attachments.size > 1) {
     const clearItem = document.createElement("li");
     clearItem.className = "attachment-clear-all";
@@ -4623,8 +4622,14 @@ broadcastForm.addEventListener("submit", async (event) => {
     logStatus("请输入内容或选择附件", "error");
     return;
   }
+  if (!text && attachments.size > 0) {
+    revealStatusBarTemporarily();
+    logStatus("附件只保存在本机，不会自动上传；请输入文字后发送，文件请在网页中手动上传。", "warning");
+    return;
+  }
   if (sendModeValue === "queue") {
     if (attachments.size > 0) {
+      revealStatusBarTemporarily();
       logStatus("排队发送暂不支持附件；请移除附件或改用立即发送", "error");
       return;
     }
@@ -4654,6 +4659,7 @@ broadcastForm.addEventListener("submit", async (event) => {
   comparisonLastPrompt = text;
   isBroadcasting = true;
   syncComposerState();
+  if (attachments.size > 0) revealStatusBarTemporarily();
   // 显示发送状态
   logStatus(`正在发送消息到 ${activePanelCount} 个模型...`, "info");
 
@@ -4686,7 +4692,8 @@ broadcastForm.addEventListener("submit", async (event) => {
     logBroadcastSummary(results);
 
     if (attachmentPayload.length > 0) {
-      logStatus("附件保留在本地；请在每个网页自己的上传界面中选择、确认并手动发送。", "info");
+      revealStatusBarTemporarily();
+      logStatus("附件仍保留在本地，请在每个网页自己的上传界面中选择、确认并手动上传。", "warning");
     }
 
     if (shouldClearBroadcastDraft(draftSnapshot, {

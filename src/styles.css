@@ -3561,3 +3561,14 @@ html[data-theme="light"] .composer-drop-hint {
   margin-top: auto;
   margin-bottom: 4px;
 }
+
+.attachment-local-hint {
+  margin: -2px 2px 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+html[data-theme="light"] .attachment-local-hint {
+  color: var(--text-muted);
+}

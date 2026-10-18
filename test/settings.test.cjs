@@ -59,7 +59,7 @@ test('settings persist with the status transcript hidden by default', () => {
   assert.match(renderer, /let sendModeValue = appSettings\.sendMode/);
   assert.match(renderer, /setSendMode\(option\.dataset\.sendMode, \{ persist: true \}\)/);
   assert.match(indexHtml, /id="broadcastStatus"[^>]*hidden/);
-  assert.match(renderer, /broadcastStatus\.hidden = !appSettings\.showStatusBar/);
+  assert.match(renderer, /broadcastStatus\.hidden = !\(appSettings\.showStatusBar \|\| transient\)/);
 });
 
 test('shortcut matchers follow the selected send, layout, and comparison bindings', () => {

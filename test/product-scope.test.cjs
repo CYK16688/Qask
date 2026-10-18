@@ -720,7 +720,7 @@ test('attachment-bearing status output contains no selected attachment name or p
   const submitSource = renderer.slice(submitStart, submitEnd);
 
   assert.doesNotMatch(submitSource, /entry\.file\.name|localAttachments\.map\(/);
-  assert.match(submitSource, /附件保留在本地；请在每个网页自己的上传界面中选择、确认并手动发送/);
+  assert.match(submitSource, /附件仍保留在本地，请在每个网页自己的上传界面中选择、确认并手动上传/);
 });
 
 test('guest execution failures and attachment removal statuses do not log remote errors or local filenames', () => {
@@ -734,7 +734,7 @@ test('guest execution failures and attachment removal statuses do not log remote
 
   assert.doesNotMatch(dispatchSource, /error\.message/);
   assert.doesNotMatch(renderer.slice(0, renderer.indexOf('const DEFAULT_MODELS =')), /error\?\.message/);
-  assert.match(dispatchSource, /message: `网页操作失败\$\{usingFallback \? " \(通用策略\)" : ""\}`/);
+  assert.match(dispatchSource, /message: `网页操作失败\$\{usingFallback \? " \(通用策略\)" : ""\}\$\{attachmentHint\}`/);
   assert.doesNotMatch(attachmentClickSource, /fileName/);
   assert.match(attachmentClickSource, /logStatus\("附件已移除", "info"\)/);
 });

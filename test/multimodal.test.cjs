@@ -130,7 +130,8 @@ test('guest scripts never receive attachment bytes or attempt generic file/paste
   assert.doesNotMatch(dispatchSource, /readAsDataURL|new DataTransfer\(\)|ClipboardEvent\('paste'|new File\(\[blob\]/);
   assert.doesNotMatch(adapterSource, /readAsDataURL|new DataTransfer\(\)|ClipboardEvent\('paste'|new File\(\[blob\]/);
   assert.doesNotMatch(dispatchSource, /attachmentManifest[^\n]*dataUri/);
-  assert.match(dispatchSource, /if \(hasAttachments\) \{[\s\S]*?manualRequired: attachmentManifest\.map/);
+  assert.match(dispatchSource, /const attachmentHint = hasAttachments/);
+  assert.match(dispatchSource, /attachmentHint\}/);
   assert.doesNotMatch(dispatchSource, /executeJavaScript\([^)]*attachmentManifest/);
 });
 
@@ -446,7 +447,7 @@ test('a failed panel carries an actionable hint without reflecting page text', (
 
   assert.match(rendererSource, /hint: buildDispatchFailureHint\(usingFallback\)/);
   // The fixed local failure string and the anti-reflection rule both survive.
-  assert.match(rendererSource, /message: `网页操作失败\$\{usingFallback \? " \(通用策略\)" : ""\}`/);
+  assert.match(rendererSource, /message: `网页操作失败\$\{usingFallback \? " \(通用策略\)" : ""\}\$\{attachmentHint\}`/);
   assert.doesNotMatch(rendererSource, /error\?\.message|reason\b.*message:/);
 });
 
