@@ -1321,8 +1321,9 @@ test('the source version, lockfile root version, and published-preview wording a
   assert.equal(packageJson.version, packageLock.version);
   assert.equal(packageJson.version, packageLock.packages[''].version);
   assert.match(readme, new RegExp(`Version ${packageJson.version.replace(/\./g, '\\.')} adds a \\*\\*Windows x64 preview\\*\\*`));
-  assert.doesNotMatch(readme, /The DMG is signed, notarized, and stapled/);
-  assert.match(readme, /The DMG itself is not code-signed/);
+  assert.match(readme, /signed, notarized, and stapled/);
+  assert.match(readme, /Qask-1\.0\.3-arm64\.dmg/);
+  assert.doesNotMatch(readme, /The DMG itself is not code-signed/);
   assert.match(security, /preview/i);
   assert.doesNotMatch(security, /Packaged\s+releases are not yet published or supported/);
 });
