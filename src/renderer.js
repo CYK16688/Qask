@@ -725,7 +725,10 @@ const buildClaudeScript = (text, autoSend, _attachments = []) => {
     ${ORIGIN_GUARD_FAILURE}
     let attemptedAutoSend = false;
     const sendButton = document.querySelector('button[data-testid="send-button"], button[aria-label*="发送"], button[aria-label*="Send"], button[type="submit"]');
-    if (sendButton && !sendButton.disabled && sendButton.getAttribute?.('aria-disabled') !== 'true' && typeof sendButton.click === 'function') {
+    if (sendButton
+      && !sendButton.disabled
+      && sendButton.getAttribute?.('aria-disabled') !== 'true'
+      && typeof sendButton.click === 'function') {
       sendButton.click();
       attemptedAutoSend = true;
     } else if (!sendButton && editable) {
@@ -769,7 +772,10 @@ const buildCopilotScript = (text, autoSend, _attachments = []) => {
     ${ORIGIN_GUARD_FAILURE}
     let attemptedAutoSend = false;
     const sendButton = document.querySelector('button[aria-label="Send"], button[aria-label*="发送"], button[data-testid="send-button"], button[name="send"]');
-    if (sendButton && !sendButton.disabled && sendButton.getAttribute?.('aria-disabled') !== 'true' && typeof sendButton.click === 'function') {
+    if (sendButton
+      && !sendButton.disabled
+      && sendButton.getAttribute?.('aria-disabled') !== 'true'
+      && typeof sendButton.click === 'function') {
       sendButton.click();
       attemptedAutoSend = true;
     } else if (!sendButton && textarea) {
@@ -829,7 +835,10 @@ const buildDeepSeekScript = (text, autoSend, _attachments = []) => {
     ${ORIGIN_GUARD_FAILURE}
     let attemptedAutoSend = false;
     const sendButton = document.querySelector('button[data-testid="send-button"], button[class*="SendButton"], button[aria-label*="发送"], button[aria-label*="Send"], button[type="submit"]');
-    if (sendButton && !sendButton.disabled && sendButton.getAttribute?.('aria-disabled') !== 'true' && typeof sendButton.click === 'function') {
+    if (sendButton
+      && !sendButton.disabled
+      && sendButton.getAttribute?.('aria-disabled') !== 'true'
+      && typeof sendButton.click === 'function') {
       sendButton.click();
       attemptedAutoSend = true;
     } else if (!sendButton && target) {
@@ -887,8 +896,11 @@ const buildKimiScript = (text, autoSend, _attachments = []) => {
     await new Promise((resolve) => setTimeout(resolve, 120));
     ${ORIGIN_GUARD_FAILURE}
     let attemptedAutoSend = false;
-    const sendButton = document.querySelector('button[data-testid="chat-send"], button[aria-label*="发送"], button[data-icon="send"], button[type="submit"]');
-    if (sendButton && !sendButton.disabled && sendButton.getAttribute?.('aria-disabled') !== 'true' && typeof sendButton.click === 'function') {
+    const sendButton = document.querySelector('button[data-testid="chat-send"], button[aria-label*="发送"], button[data-icon="send"], button[type="submit"], .send-button-container');
+    if (sendButton
+      && !sendButton.disabled
+      && sendButton.getAttribute?.('aria-disabled') !== 'true'
+      && typeof sendButton.click === 'function') {
       sendButton.click();
       attemptedAutoSend = true;
     } else if (!sendButton && target) {
@@ -1022,7 +1034,10 @@ const buildGenericScript = (text, autoSend = false, _attachments = []) => {
     };
 
     const sendButton = tryClick();
-    if (sendButton && !sendButton.disabled && sendButton.getAttribute?.('aria-disabled') !== 'true' && typeof sendButton.click === 'function') {
+    if (sendButton
+      && !sendButton.disabled
+      && sendButton.getAttribute?.('aria-disabled') !== 'true'
+      && typeof sendButton.click === 'function') {
       sendButton.click();
       return { success: true, autoSent: true, timestamp: Date.now() };
     }
@@ -2718,6 +2733,7 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
     ? attachmentManifest.map((item) => attachments.get(item.id)?.filePath).filter(Boolean)
     : [];
   let autoUploaded = false;
+  let attachmentUploadFailed = false;
   if (hasAttachments
     && appSettings.autoUploadAttachments
     && attachmentPaths.length === attachmentManifest.length) {
@@ -2736,16 +2752,10 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
       })
       : null;
     if (!upload?.ok) {
-      return {
-        panel: config.label,
-        status: BROADCAST_STATUS.error,
-        message: `${config.label} 附件上传失败；请在该网页中手动上传附件后再发送`,
-        hint: "自动上传是实验性功能；网站结构变化或未提供文件输入时会失败。",
-        attachmentUploadFailed: true,
-        attachments: buildManualAttachmentReport(attachmentManifest),
-      };
+      attachmentUploadFailed = true;
+    } else {
+      autoUploaded = true;
     }
-    autoUploaded = true;
     // Give the site a moment to create its upload preview before sending text.
     await new Promise((resolve) => setTimeout(resolve, 2500));
   }
@@ -2755,7 +2765,9 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
   const attachmentHint = hasAttachments
     ? (autoUploaded
       ? "；附件已填入网页上传控件，请确认预览"
-      : "；附件仍在本机，请在各网页手动上传")
+      : attachmentUploadFailed
+        ? "；附件自动上传失败，请在该网页手动上传"
+        : "；附件仍在本机，请在各网页手动上传")
     : "";
   const usingFallback = (config.composeMessageScript === buildGenericScript);
   const script = buildOriginGuardedScript(
@@ -2787,6 +2799,7 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
         autoSent: result.autoSent === true,
         attemptedAutoSend: result.autoSent === true,
         attachmentUploaded: autoUploaded,
+        attachmentUploadFailed,
       };
     }
     return {

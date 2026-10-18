@@ -447,6 +447,9 @@ test('built-in adapters retain a fill-only result when their discovered send con
     assert.match(script, /let attemptedAutoSend = false/);
     assert.match(script, /autoSent: attemptedAutoSend/);
     assert.match(script, /!.*\.disabled/);
+  if (adapterName === 'buildKimiScript') {
+    assert.match(script, /\.send-button-container/);
+  }
   }
 });
 
