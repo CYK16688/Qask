@@ -608,6 +608,8 @@ ipcMain.handle("attachments:upload-to-guest", async (event, payload) => {
     return { ok: false, reason: "untrusted-guest" };
   }
   const requested = Array.isArray(payload?.filePaths) ? payload.filePaths.slice(0, 5) : [];
+  const fileTypes = Array.isArray(payload?.fileTypes) ? payload.fileTypes.map((value) => String(value || "")) : [];
+  const fileNames = Array.isArray(payload?.fileNames) ? payload.fileNames.map((value) => String(value || "")) : [];
   const files = [];
   for (const candidate of requested) {
     const inspection = inspectShellAttachmentPath(candidate);
@@ -616,6 +618,27 @@ ipcMain.handle("attachments:upload-to-guest", async (event, payload) => {
     }
   }
   if (!files.length) return { ok: false, reason: "no-valid-files" };
+
+  const extension = (name) => {
+    const dot = String(name).lastIndexOf(".");
+    return dot >= 0 ? String(name).slice(dot).toLowerCase() : "";
+  };
+  const inputAcceptsFiles = (input) => {
+    if (input.disabled) return false;
+    if (files.length > 1 && input.multiple !== true) return false;
+    const tokens = String(input.accept || "").split(",").map((token) => token.trim().toLowerCase()).filter(Boolean);
+    if (!tokens.length) return true;
+    return files.every((filePath, index) => {
+      const type = (fileTypes[index] || "").toLowerCase();
+      const suffix = extension(fileNames[index] || filePath);
+      return tokens.some((token) => (
+        token === "*/*"
+        || token === type
+        || (token.endsWith("/*") && type.startsWith(token.slice(0, -1)))
+        || (token.startsWith(".") && token === suffix)
+      ));
+    });
+  };
 
   let attachedByUs = false;
   try {
@@ -629,15 +652,21 @@ ipcMain.handle("attachments:upload-to-guest", async (event, payload) => {
       nodeId: root.nodeId,
       selector: 'input[type="file"]',
     });
-    for (const nodeId of nodeIds) {
+    const { result: inputsResult } = await guest.debugger.sendCommand("Runtime.evaluate", {
+      expression: `Array.from(document.querySelectorAll('input[type="file"]')).map((el) => ({ accept: el.accept, multiple: el.multiple, disabled: el.disabled }))`,
+      returnByValue: true,
+    });
+    const inputs = Array.isArray(inputsResult?.value) ? inputsResult.value : [];
+    for (let index = 0; index < nodeIds.length; index += 1) {
+      if (!inputAcceptsFiles(inputs[index] || {})) continue;
       try {
-        await guest.debugger.sendCommand("DOM.setFileInputFiles", { files, nodeId });
-        return { ok: true, fileCount: files.length, inputCount: nodeIds.length };
+        await guest.debugger.sendCommand("DOM.setFileInputFiles", { files, nodeId: nodeIds[index] });
+        return { ok: true, fileCount: files.length, inputCount: nodeIds.length, inputIndex: index };
       } catch (error) {
-        // Try the next file input; some pages create multiple hidden inputs.
+        // Try the next compatible input.
       }
     }
-    return { ok: false, reason: "no-file-input", inputCount: nodeIds.length };
+    return { ok: false, reason: inputs.length ? "no-compatible-input" : "no-file-input", inputCount: nodeIds.length };
   } catch (error) {
     return { ok: false, reason: "debugger-failed" };
   } finally {

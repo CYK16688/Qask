@@ -2731,6 +2731,8 @@ async function dispatchMessage(panelState, text, attachmentManifest = [], { fill
       ? await window.qask?.attachments?.uploadToGuest?.({
         webContentsId: guestId,
         filePaths: attachmentPaths,
+        fileTypes: attachmentManifest.map((item) => item.type || ""),
+        fileNames: attachmentManifest.map((item) => item.name || ""),
       })
       : null;
     if (!upload?.ok) {
