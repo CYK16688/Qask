@@ -11,7 +11,7 @@ A local-first desktop workspace that turns the AI sites you already use into one
 [![CI](https://github.com/CYK16688/Qask/actions/workflows/ci.yml/badge.svg)](https://github.com/CYK16688/Qask/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CYK16688/Qask?include_prereleases&label=release)](https://github.com/CYK16688/Qask/releases)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-8a2be2.svg)](LICENSE)
-[![Electron](https://img.shields.io/badge/Electron-44.3.0-47848f.svg)](https://www.electronjs.org/)
+[![Electron](https://img.shields.io/badge/Electron-44.9.3-47848f.svg)](https://www.electronjs.org/)
 [![macOS + Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-111111.svg)](#install)
 
 [Why Qask](#why-qask) · [Tour](#a-tour-of-the-workspace) · [Install](#install) · [中文说明](#中文说明) · [Docs](docs/user-guide.md)

@@ -775,11 +775,11 @@ test('runtime Electron is pinned to the audited supported release line', () => {
   const packageJson = JSON.parse(readProjectFile('package.json'));
   const lockfile = JSON.parse(readProjectFile('package-lock.json'));
 
-  assert.equal(packageJson.devDependencies.electron, '44.3.0');
+  assert.equal(packageJson.devDependencies.electron, '44.9.3');
   assert.equal(packageJson.dependencies['electron-screenshots'], '0.5.27');
   assert.equal(packageJson.devDependencies['patch-package'], '8.0.1');
   assert.equal(packageJson.engines.node, '>=22.12.0');
-  assert.equal(lockfile.packages[''].devDependencies.electron, '44.3.0');
+  assert.equal(lockfile.packages[''].devDependencies.electron, '44.9.3');
   assert.equal(lockfile.packages[''].dependencies['electron-screenshots'], '0.5.27');
   assert.equal(lockfile.packages[''].devDependencies['patch-package'], '8.0.1');
   assert.match(readProjectFile('package.json'), /"private": true/);
